@@ -26,6 +26,7 @@ use tokio::sync::mpsc;
 use crate::interface::Interfaces;
 use crate::northbound::REGEX_PROTOCOLS;
 use crate::northbound::yang_gen::control_plane_protocol;
+use crate::northbound::yang_gen::network_instances;
 use crate::northbound::yang_gen::routing::segment_routing::sr_mpls;
 use crate::northbound::yang_gen::routing::{bier, ribs};
 use crate::{InstanceHandle, InstanceId, Master};
@@ -38,6 +39,7 @@ pub enum ListEntry {
     #[default]
     None,
     ProtocolInstance(InstanceId),
+    NetworkInstance(String),
     StaticRoute(IpNetwork),
     StaticRouteNexthop(IpNetwork, String),
     SrCfgPrefixSid(IpNetwork, IgpAlgoType),
@@ -68,6 +70,16 @@ pub enum Event {
 }
 
 // ===== configuration structs =====
+
+#[derive(Debug, Default)]
+pub struct NetworkInstance {
+    pub enabled: bool,
+    pub description: Option<String>,
+    // Kernel VRF table id, resolved from the learned VRF device of the same
+    // name (None until the VRF device is learned). Consumed by per-VRF
+    // routing.
+    pub table_id: Option<u32>,
+}
 
 #[derive(Debug, Default)]
 pub struct StaticRoute {
@@ -157,6 +169,52 @@ fn load_callbacks() -> Callbacks<Master> {
         })
         .delete_apply(|_master, _args| {
             // Nothing to do.
+        })
+        .path(control_plane_protocol::network_instance::PATH)
+        .modify_apply(|master, args| {
+            let instance_id = args.list_entry.into_protocol_instance().unwrap();
+            let ni = args.dnode.get_string();
+            master.instance_ni.insert(instance_id, ni);
+        })
+        .delete_apply(|master, args| {
+            let instance_id = args.list_entry.into_protocol_instance().unwrap();
+            master.instance_ni.remove(&instance_id);
+        })
+        .path(network_instances::network_instance::PATH)
+        .create_apply(|master, args| {
+            let name = args.dnode.get_string_relative("name").unwrap();
+            master.network_instances.insert(
+                name,
+                NetworkInstance {
+                    enabled: true,
+                    ..Default::default()
+                },
+            );
+        })
+        .delete_apply(|master, args| {
+            let name = args.list_entry.into_network_instance().unwrap();
+            master.network_instances.remove(&name);
+        })
+        .lookup(|_master, _list_entry, dnode| {
+            let name = dnode.get_string_relative("name").unwrap();
+            ListEntry::NetworkInstance(name)
+        })
+        .path(network_instances::network_instance::enabled::PATH)
+        .modify_apply(|master, args| {
+            let name = args.list_entry.into_network_instance().unwrap();
+            let ni = master.network_instances.get_mut(&name).unwrap();
+            ni.enabled = args.dnode.get_bool();
+        })
+        .path(network_instances::network_instance::description::PATH)
+        .modify_apply(|master, args| {
+            let name = args.list_entry.into_network_instance().unwrap();
+            let ni = master.network_instances.get_mut(&name).unwrap();
+            ni.description = Some(args.dnode.get_string());
+        })
+        .delete_apply(|master, args| {
+            let name = args.list_entry.into_network_instance().unwrap();
+            let ni = master.network_instances.get_mut(&name).unwrap();
+            ni.description = None;
         })
         .path(control_plane_protocol::static_routes::ipv4::route::PATH)
         .create_apply(|master, args| {

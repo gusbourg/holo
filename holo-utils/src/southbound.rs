@@ -140,6 +140,8 @@ pub struct RouteMsg {
     pub protocol: Protocol,
     #[serde(skip)]
     pub kind: RouteKind,
+    #[serde(default)]
+    pub table_id: Option<u32>,
     pub prefix: IpNetwork,
     pub distance: u32,
     pub metric: u32,
@@ -153,6 +155,8 @@ pub struct RouteMsg {
 #[derive(Deserialize, Serialize)]
 pub struct RouteKeyMsg {
     pub protocol: Protocol,
+    #[serde(default)]
+    pub table_id: Option<u32>,
     pub prefix: IpNetwork,
 }
 

@@ -17,7 +17,8 @@ use holo_utils::southbound::{
 };
 use ipnetwork::IpNetwork;
 
-use crate::rib::{NhtEntry, RedistributeSub, Route, RouteFlags};
+use crate::northbound::configuration;
+use crate::rib::{NhtEntry, RedistributeSub, Route, RouteFlags, RouteKey};
 use crate::{InstanceId, Master};
 
 // ===== global functions =====
@@ -155,7 +156,7 @@ pub(crate) fn process_msg(
 
             // Redistribute active routes of the requested protocol type.
             let redistribute_prefix =
-                |prefix, routes: &BTreeMap<u32, Route>| {
+                |prefix, routes: &BTreeMap<RouteKey, Route>| {
                     if let Some(best_route) = routes
                         .values()
                         .find(|route| route.protocol == protocol)
@@ -215,6 +216,17 @@ pub(crate) fn process_notification_msg(master: &mut Master, msg: IbusMsg) {
                 && let Some(ni) = master.network_instances.get_mut(&msg.ifname)
             {
                 ni.table_id = Some(table_id);
+                let route_keys = master
+                    .static_routes
+                    .keys()
+                    .filter(|key| {
+                        key.instance_id.network_instance == msg.ifname
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
+                for route_key in route_keys {
+                    configuration::static_route_install(master, route_key);
+                }
             }
         }
         // Interface delete notification.
@@ -237,6 +249,7 @@ pub(crate) fn process_notification_msg(master: &mut Master, msg: IbusMsg) {
                 master.ibus_tx.route_ip_add(RouteMsg {
                     protocol: Protocol::DIRECT,
                     kind: RouteKind::Unicast,
+                    table_id: None,
                     prefix: msg.addr.apply_mask(),
                     distance: 0,
                     metric: 0,
@@ -260,6 +273,7 @@ pub(crate) fn process_notification_msg(master: &mut Master, msg: IbusMsg) {
             if !msg.flags.contains(AddressFlags::UNNUMBERED) {
                 master.ibus_tx.route_ip_del(RouteKeyMsg {
                     protocol: Protocol::DIRECT,
+                    table_id: None,
                     prefix: msg.addr.apply_mask(),
                 });
             }
@@ -299,6 +313,7 @@ pub(crate) fn notify_redistribute_add(
     let msg = RouteMsg {
         protocol: route.protocol,
         kind: route.kind,
+        table_id: route.table_id,
         prefix,
         distance: route.distance,
         metric: route.metric,
@@ -320,7 +335,11 @@ pub(crate) fn notify_redistribute_del(
         return;
     }
 
-    let msg = RouteKeyMsg { protocol, prefix };
+    let msg = RouteKeyMsg {
+        protocol,
+        table_id: None,
+        prefix,
+    };
     let msg = IbusMsg::RouteRedistributeDel(msg);
     send(&sub.tx, msg.clone());
 }

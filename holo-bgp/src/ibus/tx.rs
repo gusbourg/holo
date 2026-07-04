@@ -44,6 +44,7 @@ pub(crate) fn route_install(
     let msg = RouteMsg {
         protocol: Protocol::BGP,
         kind: RouteKind::Unicast,
+        table_id: None,
         prefix: prefix.into(),
         distance: distance.into(),
         metric: route.attrs.base.value.med.unwrap_or(0),
@@ -61,6 +62,7 @@ pub(crate) fn route_uninstall(
     // Uninstall route.
     let msg = RouteKeyMsg {
         protocol: Protocol::BGP,
+        table_id: None,
         prefix: prefix.into(),
     };
     ibus_tx.route_ip_del(msg);

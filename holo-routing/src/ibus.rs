@@ -203,7 +203,19 @@ pub(crate) fn process_notification_msg(master: &mut Master, msg: IbusMsg) {
     match msg {
         // Interface update notification.
         IbusMsg::InterfaceUpd(msg) => {
-            master.interfaces.update(msg.ifname, msg.ifindex, msg.flags);
+            master.interfaces.update(
+                msg.ifname.clone(),
+                msg.ifindex,
+                msg.flags,
+                msg.vrf_table_id,
+            );
+            // If this is a VRF device, resolve the table id of a matching
+            // network instance (VRF definitions reference the device by name).
+            if let Some(table_id) = msg.vrf_table_id
+                && let Some(ni) = master.network_instances.get_mut(&msg.ifname)
+            {
+                ni.table_id = Some(table_id);
+            }
         }
         // Interface delete notification.
         IbusMsg::InterfaceDel(ifname) => {

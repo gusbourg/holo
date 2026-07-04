@@ -38,4 +38,19 @@ module holo-network-instance {
          runs in.";
     }
   }
+
+  augment "/ni:network-instances/ni:network-instance" {
+    description
+      "Operational state learned for the network instance (VRF).";
+    container state {
+      config false;
+      description "Network-instance operational state.";
+      leaf table-id {
+        type uint32;
+        description
+          "Kernel routing table id, learned from the VRF device of the
+           same name. Absent until the VRF device is present.";
+      }
+    }
+  }
 }

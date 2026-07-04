@@ -183,10 +183,14 @@ fn load_callbacks() -> Callbacks<Master> {
         .path(network_instances::network_instance::PATH)
         .create_apply(|master, args| {
             let name = args.dnode.get_string_relative("name").unwrap();
+            // Resolve the kernel table id if the VRF device was already
+            // learned from the kernel (otherwise resolved on InterfaceUpd).
+            let table_id = master.interfaces.vrf_table_id(&name);
             master.network_instances.insert(
                 name,
                 NetworkInstance {
                     enabled: true,
+                    table_id,
                     ..Default::default()
                 },
             );

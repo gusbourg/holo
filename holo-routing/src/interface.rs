@@ -16,6 +16,8 @@ pub struct Interface {
     pub ifindex: u32,
     pub flags: InterfaceFlags,
     pub addresses: BTreeMap<IpNetwork, AddressFlags>,
+    // Routing table id, if this interface is itself a VRF device.
+    pub vrf_table_id: Option<u32>,
 }
 
 #[derive(Debug, Default)]
@@ -47,6 +49,7 @@ impl Interfaces {
         ifname: String,
         ifindex: u32,
         flags: InterfaceFlags,
+        vrf_table_id: Option<u32>,
     ) {
         match self.ifindex_tree.get(&ifindex).copied() {
             Some(iface_idx) => {
@@ -60,6 +63,7 @@ impl Interfaces {
                 }
                 iface.flags = flags;
                 iface.ifindex = ifindex;
+                iface.vrf_table_id = vrf_table_id;
             }
             None => {
                 // If the interface does not exist, create a new entry.
@@ -68,6 +72,7 @@ impl Interfaces {
                     ifindex,
                     flags,
                     addresses: Default::default(),
+                    vrf_table_id,
                 };
                 let iface_idx = self.arena.insert(iface);
                 self.name_tree.insert(ifname.clone(), iface_idx);
@@ -95,6 +100,12 @@ impl Interfaces {
             .get(ifname)
             .copied()
             .map(|iface_idx| &self.arena[iface_idx])
+    }
+
+    // Returns the routing table id of the VRF device with the given name, if
+    // such a device has been learned from the kernel.
+    pub(crate) fn vrf_table_id(&self, name: &str) -> Option<u32> {
+        self.get_by_name(name).and_then(|iface| iface.vrf_table_id)
     }
 
     // Returns a mutable reference to the interface corresponding to the given

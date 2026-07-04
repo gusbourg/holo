@@ -118,6 +118,12 @@ pub struct InterfaceUpdateMsg {
     pub mac_address: MacAddr,
     #[serde(default)]
     pub msd: BTreeMap<MsdType, u8>,
+    // L3 master (VRF) this interface is enslaved to, if any.
+    #[serde(default)]
+    pub master_ifindex: Option<u32>,
+    // Routing table id, if this interface is itself a VRF device.
+    #[serde(default)]
+    pub vrf_table_id: Option<u32>,
 }
 
 #[derive(Clone, Debug)]

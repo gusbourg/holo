@@ -16,6 +16,7 @@ use holo_utils::southbound::{
     AddressFlags, Nexthop, RouteKeyMsg, RouteKind, RouteMsg, RouteOpaqueAttrs,
 };
 use ipnetwork::IpNetwork;
+use tracing::warn;
 
 use crate::northbound::configuration;
 use crate::rib::{NhtEntry, RedistributeSub, Route, RouteFlags, RouteKey};
@@ -115,11 +116,31 @@ pub(crate) fn process_msg(
             // Remove the local copy of the policy definition.
             master.shared.policies.remove(&policy_name);
         }
-        IbusMsg::RouteIpAdd(msg) => {
+        IbusMsg::RouteIpAdd(mut msg) => {
+            if msg.table_id.is_none()
+                && !route_table_id(master, &client, &mut msg.table_id)
+            {
+                warn!(
+                    protocol = %msg.protocol,
+                    prefix = %msg.prefix,
+                    "route deferred: VRF table id is not resolved"
+                );
+                return;
+            }
             // Add route to the RIB.
             master.rib.ip_route_add(msg, client.id);
         }
-        IbusMsg::RouteIpDel(msg) => {
+        IbusMsg::RouteIpDel(mut msg) => {
+            if msg.table_id.is_none()
+                && !route_table_id(master, &client, &mut msg.table_id)
+            {
+                warn!(
+                    protocol = %msg.protocol,
+                    prefix = %msg.prefix,
+                    "route uninstall deferred: VRF table id is not resolved"
+                );
+                return;
+            }
             // Remove route from the RIB.
             master.rib.ip_route_del(msg);
         }
@@ -359,4 +380,33 @@ pub(crate) fn notify_nht_update(addr: IpAddr, nhte: &NhtEntry) {
 
 fn send(ibus_tx: &IbusSender, msg: IbusMsg) {
     let _ = ibus_tx.send(msg);
+}
+
+fn route_table_id(
+    master: &Master,
+    client: &IbusClient,
+    table_id: &mut Option<u32>,
+) -> bool {
+    let Some(instance_id) = master
+        .instances
+        .iter()
+        .find(|(_, instance)| instance.ibus_tx.same_channel(&client.tx))
+        .map(|(instance_id, _)| instance_id)
+    else {
+        return true;
+    };
+
+    if instance_id.network_instance == InstanceId::DEFAULT_NETWORK_INSTANCE {
+        return true;
+    }
+
+    let Some(resolved_table_id) = master
+        .network_instances
+        .get(&instance_id.network_instance)
+        .and_then(|ni| ni.table_id)
+    else {
+        return false;
+    };
+    *table_id = Some(resolved_table_id);
+    true
 }

@@ -90,6 +90,8 @@ where
 /// Shared data among all protocol instances.
 #[derive(Clone, Default, new)]
 pub struct InstanceShared {
+    // Network instance (VRF) this protocol instance runs in.
+    pub network_instance: String,
     // Non-volatile storage.
     pub db: Option<Database>,
     // Hostname.
@@ -159,6 +161,7 @@ where
 impl std::fmt::Debug for InstanceShared {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InstanceShared")
+            .field("network_instance", &self.network_instance)
             .field("label_manager", &self.label_manager)
             .field("keychains", &self.keychains)
             .field("policy_match_sets", &self.policy_match_sets)

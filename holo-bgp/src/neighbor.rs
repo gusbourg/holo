@@ -240,7 +240,10 @@ impl Neighbor {
                     if self.config.transport.passive_mode {
                         Some(fsm::State::Active)
                     } else {
-                        self.connect(&instance.tx.protocol_input.tcp_connect);
+                        self.connect(
+                            &instance.tx.protocol_input.tcp_connect,
+                            instance.network_instance,
+                        );
                         Some(fsm::State::Connect)
                     }
                 }
@@ -273,7 +276,10 @@ impl Neighbor {
                     Some(fsm::State::Idle)
                 }
                 fsm::Event::Timer(fsm::Timer::ConnectRetry) => {
-                    self.connect(&instance.tx.protocol_input.tcp_connect);
+                    self.connect(
+                        &instance.tx.protocol_input.tcp_connect,
+                        instance.network_instance,
+                    );
                     self.connect_retry_start(
                         &instance.tx.protocol_input.nbr_timer,
                     );
@@ -312,7 +318,10 @@ impl Neighbor {
                     Some(fsm::State::Idle)
                 }
                 fsm::Event::Timer(fsm::Timer::ConnectRetry) => {
-                    self.connect(&instance.tx.protocol_input.tcp_connect);
+                    self.connect(
+                        &instance.tx.protocol_input.tcp_connect,
+                        instance.network_instance,
+                    );
                     self.connect_retry_start(
                         &instance.tx.protocol_input.nbr_timer,
                     );
@@ -842,8 +851,14 @@ impl Neighbor {
     }
 
     // Starts a TCP connection task to the neighbor's remote address.
-    fn connect(&mut self, tcp_connectp: &Sender<TcpConnectMsg>) {
-        let task = tasks::tcp_connect(self, tcp_connectp);
+    fn connect(
+        &mut self,
+        tcp_connectp: &Sender<TcpConnectMsg>,
+        network_instance: &str,
+    ) {
+        let vrf_device = (network_instance != "default")
+            .then(|| network_instance.to_owned());
+        let task = tasks::tcp_connect(self, tcp_connectp, vrf_device);
         self.tasks.connect = Some(task);
     }
 

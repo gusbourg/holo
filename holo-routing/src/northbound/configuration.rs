@@ -113,7 +113,7 @@ pub enum NexthopSpecial {
 fn load_callbacks() -> Callbacks<Master> {
     CallbacksBuilder::<Master>::default()
         .path(control_plane_protocol::PATH)
-        .create_prepare(|_master, args| {
+        .create_prepare(|master, args| {
             let ptype = args.dnode.get_string_relative("./type").unwrap();
             let name = args.dnode.get_string_relative("./name").unwrap();
             let network_instance = args.dnode.get_string_relative("./network-instance").unwrap_or_else(|| InstanceId::DEFAULT_NETWORK_INSTANCE.to_owned());
@@ -134,6 +134,9 @@ fn load_callbacks() -> Callbacks<Master> {
                 return Ok(());
             }
 
+            let base_id = InstanceId::new(protocol, name.clone());
+            master.instance_ni.insert(base_id, network_instance.clone());
+
             let event_queue = args.event_queue;
             event_queue.insert(Event::InstanceStart { protocol, name, network_instance });
 
@@ -149,6 +152,9 @@ fn load_callbacks() -> Callbacks<Master> {
 
             // Remove protocol instance.
             remove_instance(master, &instance_id);
+            let base_id =
+                InstanceId::new(instance_id.protocol, instance_id.name);
+            master.instance_ni.remove(&base_id);
         })
         .delete_apply(|master, args| {
             let instance_id = args.list_entry.into_protocol_instance().unwrap();
@@ -160,6 +166,9 @@ fn load_callbacks() -> Callbacks<Master> {
 
             // Remove protocol instance.
             remove_instance(master, &instance_id);
+            let base_id =
+                InstanceId::new(instance_id.protocol, instance_id.name);
+            master.instance_ni.remove(&base_id);
         })
         .lookup(|_instance, _list_entry, dnode| {
             let ptype = dnode.get_string_relative("./type").unwrap();
@@ -1264,7 +1273,9 @@ impl Provider for Master {
 fn instance_start(master: &mut Master, protocol: Protocol, name: String, network_instance: String) {
     use holo_protocol::spawn_protocol_task;
 
-    let instance_id = InstanceId::new_with_network_instance(protocol, name.clone(), network_instance);
+    let instance_id = InstanceId::new_with_network_instance(protocol, name.clone(), network_instance.clone());
+    let mut shared = master.shared.clone();
+    shared.network_instance = network_instance;
     let (ibus_instance_tx, ibus_instance_rx) = mpsc::unbounded_channel();
 
     // Start protocol instance.
@@ -1277,7 +1288,7 @@ fn instance_start(master: &mut Master, protocol: Protocol, name: String, network
         Protocol::BGP => {
             use holo_bgp::instance::Instance;
 
-            spawn_protocol_task::<Instance>(name, &master.nb_tx, &master.ibus_tx, ibus_instance_tx.clone(), ibus_instance_rx, Default::default(), master.shared.clone())
+            spawn_protocol_task::<Instance>(name, &master.nb_tx, &master.ibus_tx, ibus_instance_tx.clone(), ibus_instance_rx, Default::default(), shared)
         }
         Protocol::DIRECT => {
             // This protocol type can not be configured.
@@ -1287,47 +1298,47 @@ fn instance_start(master: &mut Master, protocol: Protocol, name: String, network
         Protocol::IGMP => {
             use holo_igmp::instance::Instance;
 
-            spawn_protocol_task::<Instance>(name, &master.nb_tx, &master.ibus_tx, ibus_instance_tx.clone(), ibus_instance_rx, Default::default(), master.shared.clone())
+            spawn_protocol_task::<Instance>(name, &master.nb_tx, &master.ibus_tx, ibus_instance_tx.clone(), ibus_instance_rx, Default::default(), shared)
         }
         #[cfg(feature = "isis")]
         Protocol::ISIS => {
             use holo_isis::instance::Instance;
 
-            spawn_protocol_task::<Instance>(name, &master.nb_tx, &master.ibus_tx, ibus_instance_tx.clone(), ibus_instance_rx, Default::default(), master.shared.clone())
+            spawn_protocol_task::<Instance>(name, &master.nb_tx, &master.ibus_tx, ibus_instance_tx.clone(), ibus_instance_rx, Default::default(), shared)
         }
         #[cfg(feature = "ldp")]
         Protocol::LDP => {
             use holo_ldp::instance::Instance;
 
-            spawn_protocol_task::<Instance>(name, &master.nb_tx, &master.ibus_tx, ibus_instance_tx.clone(), ibus_instance_rx, Default::default(), master.shared.clone())
+            spawn_protocol_task::<Instance>(name, &master.nb_tx, &master.ibus_tx, ibus_instance_tx.clone(), ibus_instance_rx, Default::default(), shared)
         }
         #[cfg(feature = "ospf")]
         Protocol::OSPFV2 => {
             use holo_ospf::instance::Instance;
             use holo_ospf::version::Ospfv2;
 
-            spawn_protocol_task::<Instance<Ospfv2>>(name, &master.nb_tx, &master.ibus_tx, ibus_instance_tx.clone(), ibus_instance_rx, Default::default(), master.shared.clone())
+            spawn_protocol_task::<Instance<Ospfv2>>(name, &master.nb_tx, &master.ibus_tx, ibus_instance_tx.clone(), ibus_instance_rx, Default::default(), shared)
         }
         #[cfg(feature = "ospf")]
         Protocol::OSPFV3 => {
             use holo_ospf::instance::Instance;
             use holo_ospf::version::Ospfv3;
 
-            spawn_protocol_task::<Instance<Ospfv3>>(name, &master.nb_tx, &master.ibus_tx, ibus_instance_tx.clone(), ibus_instance_rx, Default::default(), master.shared.clone())
+            spawn_protocol_task::<Instance<Ospfv3>>(name, &master.nb_tx, &master.ibus_tx, ibus_instance_tx.clone(), ibus_instance_rx, Default::default(), shared)
         }
         #[cfg(feature = "rip")]
         Protocol::RIPV2 => {
             use holo_rip::instance::Instance;
             use holo_rip::version::Ripv2;
 
-            spawn_protocol_task::<Instance<Ripv2>>(name, &master.nb_tx, &master.ibus_tx, ibus_instance_tx.clone(), ibus_instance_rx, Default::default(), master.shared.clone())
+            spawn_protocol_task::<Instance<Ripv2>>(name, &master.nb_tx, &master.ibus_tx, ibus_instance_tx.clone(), ibus_instance_rx, Default::default(), shared)
         }
         #[cfg(feature = "rip")]
         Protocol::RIPNG => {
             use holo_rip::instance::Instance;
             use holo_rip::version::Ripng;
 
-            spawn_protocol_task::<Instance<Ripng>>(name, &master.nb_tx, &master.ibus_tx, ibus_instance_tx.clone(), ibus_instance_rx, Default::default(), master.shared.clone())
+            spawn_protocol_task::<Instance<Ripng>>(name, &master.nb_tx, &master.ibus_tx, ibus_instance_tx.clone(), ibus_instance_rx, Default::default(), shared)
         }
         _ => {
             // Nothing to do.

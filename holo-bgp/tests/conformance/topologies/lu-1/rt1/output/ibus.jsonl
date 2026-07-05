@@ -1,0 +1,4 @@
+{"RouterIdSub":{}}
+{"NexthopTrack":{"addr":"198.51.100.2"}}
+{"RouteIpAdd":{"protocol":"bgp","prefix":"192.0.2.0/24","distance":200,"metric":0,"tag":null,"nexthops":[{"Recursive":{"addr":"198.51.100.2","labels":[16000],"resolved":[]}}]}}
+{"RouteMplsAdd":{"protocol":"bgp","label":16,"nexthops":[{"Recursive":{"addr":"198.51.100.2","labels":[16000],"resolved":[]}}],"route":["bgp","192.0.2.0/24"],"replace":true}}

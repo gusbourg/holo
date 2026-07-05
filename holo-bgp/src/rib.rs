@@ -12,6 +12,7 @@ use std::time::Instant;
 
 use holo_utils::bgp::RouteType;
 use holo_utils::ibus::IbusChannelsTx;
+use holo_utils::mpls::Label;
 use holo_utils::protocol::Protocol;
 use serde::{Deserialize, Serialize};
 
@@ -76,6 +77,7 @@ pub struct LocalRoute {
     pub origin: RouteOrigin,
     pub attrs: RouteAttrs,
     pub route_type: RouteType,
+    pub vpn_label: Option<Label>,
     pub last_modified: Instant,
     pub nexthops: Option<BTreeSet<IpAddr>>,
 }
@@ -85,6 +87,7 @@ pub struct Route {
     pub origin: RouteOrigin,
     pub attrs: RouteAttrs,
     pub route_type: RouteType,
+    pub vpn_label: Option<Label>,
     pub igp_cost: Option<u32>,
     pub last_modified: Instant,
     pub ineligible_reason: Option<RouteIneligibleReason>,
@@ -307,6 +310,7 @@ impl Route {
             origin,
             attrs,
             route_type,
+            vpn_label: None,
             igp_cost: None,
             last_modified: Instant::now(),
             ineligible_reason: None,
@@ -804,6 +808,7 @@ pub(crate) fn loc_rib_update<A>(
             && local_route.origin == best_route.origin
             && local_route.attrs == best_route.attrs
             && local_route.route_type == best_route.route_type
+            && local_route.vpn_label == best_route.vpn_label
             && local_route.nexthops == nexthops
         {
             return;
@@ -814,6 +819,7 @@ pub(crate) fn loc_rib_update<A>(
             origin: best_route.origin,
             attrs: best_route.attrs,
             route_type: best_route.route_type,
+            vpn_label: best_route.vpn_label,
             last_modified: best_route.last_modified,
             nexthops,
         };
@@ -959,6 +965,7 @@ mod tests {
             origin,
             attrs,
             route_type,
+            vpn_label: None,
             igp_cost,
             last_modified: Instant::now(),
             ineligible_reason: None,

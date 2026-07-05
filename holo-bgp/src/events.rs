@@ -11,6 +11,7 @@ use holo_protocol::InstanceShared;
 use holo_utils::bgp::RouteType;
 use holo_utils::ibus::IbusChannelsTx;
 use holo_utils::ip::IpAddrKind;
+use holo_utils::mpls::Label;
 use holo_utils::policy::{PolicyResult, PolicyType};
 use holo_utils::socket::{TcpConnInfo, TcpStream};
 use ipnetwork::IpNetwork;
@@ -228,9 +229,14 @@ fn process_nbr_update(
                     attrs.base.nexthop = Some(nexthop.into());
                     let prefixes = prefixes
                         .into_iter()
-                        .map(|nlri| Vpnv4Prefix {
-                            rd: nlri.rd,
-                            prefix: nlri.prefix,
+                        .map(|nlri| {
+                            (
+                                Vpnv4Prefix {
+                                    rd: nlri.rd,
+                                    prefix: nlri.prefix,
+                                },
+                                Label::new(nlri.label),
+                            )
                         })
                         .collect();
                     process_nbr_reach_prefixes_pre_policy::<Vpnv4Unicast>(
@@ -241,9 +247,14 @@ fn process_nbr_update(
                     attrs.base.nexthop = Some(nexthop.into());
                     let prefixes = prefixes
                         .into_iter()
-                        .map(|nlri| Vpnv6Prefix {
-                            rd: nlri.rd,
-                            prefix: nlri.prefix,
+                        .map(|nlri| {
+                            (
+                                Vpnv6Prefix {
+                                    rd: nlri.rd,
+                                    prefix: nlri.prefix,
+                                },
+                                Label::new(nlri.label),
+                            )
                         })
                         .collect();
                     process_nbr_reach_prefixes_pre_policy::<Vpnv6Unicast>(
@@ -422,7 +433,7 @@ fn process_nbr_reach_prefixes<A>(
 fn process_nbr_reach_prefixes_pre_policy<A>(
     nbr: &Neighbor,
     rib: &mut Rib,
-    nlri_prefixes: Vec<A::Prefix>,
+    nlri_prefixes: Vec<(A::Prefix, Label)>,
     attrs: Attrs,
 ) where
     A: AddressFamily,
@@ -446,10 +457,11 @@ fn process_nbr_reach_prefixes_pre_policy<A>(
     // RD-qualified keys instead of plain IP networks.
     let table = A::table(&mut rib.tables);
     let route_attrs = rib.attr_sets.get_route_attr_sets(&attrs);
-    for prefix in nlri_prefixes {
+    for (prefix, label) in nlri_prefixes {
         let dest = table.prefixes.entry(prefix).or_default();
         let adj_rib = dest.adj_rib.entry(nbr.remote_addr).or_default();
-        let route = Route::new(origin, route_attrs.clone(), route_type);
+        let mut route = Route::new(origin, route_attrs.clone(), route_type);
+        route.vpn_label = Some(label);
         adj_rib.update_in_pre(Box::new(route), &mut rib.attr_sets);
 
         // Enqueue the prefix so later decision-process wiring sees all VPN

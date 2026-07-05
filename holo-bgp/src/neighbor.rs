@@ -935,6 +935,7 @@ impl Neighbor {
                         origin: route.origin,
                         attrs: route.attrs.clone(),
                         route_type: route.route_type,
+                        vpn_label: route.vpn_label,
                         igp_cost: None,
                         last_modified: route.last_modified,
                         ineligible_reason: None,

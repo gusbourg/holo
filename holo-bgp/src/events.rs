@@ -527,6 +527,23 @@ pub(crate) fn process_nbr_policy_export<A>(
 where
     A: AddressFamily,
 {
+    let rr_client_cluster_ids = neighbors
+        .iter()
+        .filter(|(_, nbr)| nbr.config.route_reflector.client)
+        .filter_map(|(addr, nbr)| {
+            nbr.config
+                .route_reflector
+                .cluster_id
+                .or(instance.config.identifier)
+                .map(|cluster_id| (*addr, cluster_id))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let rr_cluster_id = rr_client_cluster_ids
+        .values()
+        .next()
+        .copied()
+        .or(instance.config.identifier);
+
     // Lookup neighbor.
     let Some(nbr) = neighbors.get_mut(&nbr_addr) else {
         return Ok(());
@@ -565,14 +582,20 @@ where
 
                     // Update route's attributes before transmission.
                     let mut attrs = rpinfo.attrs;
+                    let cluster_id = match rpinfo.origin {
+                        RouteOrigin::Neighbor { remote_addr, .. } => {
+                            rr_client_cluster_ids
+                                .get(&remote_addr)
+                                .copied()
+                                .or(rr_cluster_id)
+                        }
+                        RouteOrigin::Protocol(_) => rr_cluster_id,
+                    };
                     rib::attrs_tx_update::<A>(
                         &mut attrs,
                         nbr,
                         instance.config.asn,
-                        nbr.config
-                            .route_reflector
-                            .cluster_id
-                            .or(instance.config.identifier),
+                        cluster_id,
                         rpinfo.origin,
                         rpinfo.route_type,
                         rpinfo.origin.is_local(),

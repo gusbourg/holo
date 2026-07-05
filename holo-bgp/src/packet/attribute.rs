@@ -1288,13 +1288,21 @@ impl MpReachNlri {
 
                 // Parse nexthop.
                 let nexthop_len = buf.try_get_u8()? as usize;
-                if nexthop_len != 8 + Ipv6Addr::LENGTH
+                let rd_ipv6_len = 8 + Ipv6Addr::LENGTH;
+                if (nexthop_len != Ipv6Addr::LENGTH
+                    && nexthop_len != rd_ipv6_len
+                    && nexthop_len != rd_ipv6_len * 2)
                     || nexthop_len > buf.remaining()
                 {
                     return Err(AttrError::Reset);
                 }
-                buf.advance(8);
+                if nexthop_len != Ipv6Addr::LENGTH {
+                    buf.advance(8);
+                }
                 let nexthop = buf.try_get_ipv6()?;
+                if nexthop_len == rd_ipv6_len * 2 {
+                    buf.advance(rd_ipv6_len);
+                }
 
                 // Parse prefixes.
                 let _reserved = buf.try_get_u8()?;

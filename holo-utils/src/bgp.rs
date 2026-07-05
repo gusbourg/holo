@@ -371,13 +371,13 @@ impl ToYang for RouteTarget {
     fn to_yang(&self) -> Cow<'static, str> {
         match self {
             RouteTarget::As2Administrator { asn, number } => {
-                format!("target:{asn}:{number}").into()
+                format!("route-target:{asn}:{number}").into()
             }
             RouteTarget::Ipv4Administrator { addr, number } => {
-                format!("target:{addr}:{number}").into()
+                format!("route-target:{addr}:{number}").into()
             }
             RouteTarget::As4Administrator { asn, number } => {
-                format!("target:{asn}:{number}").into()
+                format!("route-target:{asn}:{number}").into()
             }
         }
     }

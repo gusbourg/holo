@@ -37,3 +37,8 @@ async fn evpn_1() {
 async fn prefix_limit_1() {
     run_test_topology::<Instance>("prefix-limit-1", "rt1").await;
 }
+
+#[tokio::test]
+async fn default_originate_1() {
+    run_test_topology::<Instance>("default-originate-1", "rt1").await;
+}

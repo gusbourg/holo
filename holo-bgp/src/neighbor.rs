@@ -931,6 +931,10 @@ impl Neighbor {
             return;
         }
 
+        if events::default_originate_neighbor_enabled::<A>(self) {
+            events::ensure_default_originate_route::<A>(instance);
+        }
+
         // Get list of best routes for this address-family.
         let table = A::table(&mut instance.state.rib.tables);
         let routes = table
@@ -951,7 +955,7 @@ impl Neighbor {
                     (*prefix, Box::new(route))
                 })
             })
-            .filter(|(_, route)| self.distribute_filter(route))
+            .filter(|(prefix, route)| self.distribute_filter::<A>(*prefix, route))
             .collect::<Vec<_>>();
 
         // Advertise the best routes.
@@ -1085,7 +1089,27 @@ impl Neighbor {
     }
 
     // Determines whether the given route is eligible for distribution.
-    pub(crate) fn distribute_filter(&self, route: &Route) -> bool {
+    pub(crate) fn distribute_filter<A>(
+        &self,
+        prefix: A::Prefix,
+        route: &Route,
+    ) -> bool
+    where
+        A: AddressFamily,
+    {
+        if is_default_originate_route::<A>(prefix, route)
+            && !self
+                .config
+                .afi_safi
+                .get(&A::AFI_SAFI)
+                .is_some_and(|afi_safi| {
+                    afi_safi.enabled
+                        && afi_safi.send_default_route == Some(true)
+                })
+        {
+            return false;
+        }
+
         // Suppress advertisements to peers if their AS number is present
         // in the AS path of the route, unless overridden by configuration.
         if !self.config.as_path_options.disable_peer_as_filter
@@ -1151,6 +1175,18 @@ impl Neighbor {
 
         false
     }
+}
+
+fn is_default_originate_route<A>(prefix: A::Prefix, route: &Route) -> bool
+where
+    A: AddressFamily,
+{
+    if route.origin != RouteOrigin::Protocol(holo_utils::protocol::Protocol::BGP)
+    {
+        return false;
+    }
+
+    events::default_originate_prefix::<A>() == Some(prefix)
 }
 
 // ===== impl MessageStatistics =====

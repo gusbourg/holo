@@ -10,6 +10,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::Instant;
 
+use holo_protocol::InstanceShared;
 use holo_utils::bgp::RouteType;
 use holo_utils::ibus::IbusChannelsTx;
 use holo_utils::mpls::Label;
@@ -789,6 +790,7 @@ pub(crate) fn loc_rib_update<A>(
     mpath_cfg: &MultipathCfg,
     distance_cfg: &DistanceCfg,
     trace_opts: &InstanceTraceOptions,
+    shared: &InstanceShared,
     ibus_tx: &IbusChannelsTx,
 ) where
     A: AddressFamily,
@@ -814,6 +816,10 @@ pub(crate) fn loc_rib_update<A>(
             return;
         }
 
+        if let Some(local_route) = &dest.local {
+            A::vpn_import_uninstall(prefix, local_route, shared, ibus_tx);
+        }
+
         // Create new local route.
         let local_route = LocalRoute {
             origin: best_route.origin,
@@ -823,19 +829,22 @@ pub(crate) fn loc_rib_update<A>(
             last_modified: best_route.last_modified,
             nexthops,
         };
+        let distance = match best_route.route_type {
+            RouteType::Internal => distance_cfg.internal,
+            RouteType::External => distance_cfg.external,
+        };
 
         // Install local route in the global RIB.
         if A::INSTALL_LOC_RIB && !local_route.origin.is_local() {
             ibus::tx::route_install(
                 ibus_tx,
+                None,
                 A::prefix_to_ip_network(prefix),
                 &local_route,
-                match best_route.route_type {
-                    RouteType::Internal => distance_cfg.internal,
-                    RouteType::External => distance_cfg.external,
-                },
+                distance,
             );
         }
+        A::vpn_import_install(prefix, &local_route, shared, ibus_tx, distance);
 
         // Insert local route into the Loc-RIB.
         dest.local = Some(Box::new(local_route));
@@ -846,6 +855,8 @@ pub(crate) fn loc_rib_update<A>(
 
         // Remove route from the Loc-RIB.
         if let Some(local_route) = dest.local.take() {
+            A::vpn_import_uninstall(prefix, &local_route, shared, ibus_tx);
+
             // Check attribute sets that might need to be removed.
             attr_sets.remove_route_attr_sets(&local_route.attrs);
 
@@ -853,6 +864,7 @@ pub(crate) fn loc_rib_update<A>(
             if A::INSTALL_LOC_RIB && !local_route.origin.is_local() {
                 ibus::tx::route_uninstall(
                     ibus_tx,
+                    None,
                     A::prefix_to_ip_network(prefix),
                 );
             }

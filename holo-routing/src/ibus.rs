@@ -237,6 +237,7 @@ pub(crate) fn process_notification_msg(master: &mut Master, msg: IbusMsg) {
                 && let Some(ni) = master.network_instances.get_mut(&msg.ifname)
             {
                 ni.table_id = Some(table_id);
+                configuration::vpn_imports_update(master);
                 let route_keys = master
                     .static_routes
                     .keys()

@@ -4,13 +4,17 @@
 // SPDX-License-Identifier: MIT
 //
 
+use std::collections::BTreeSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use holo_utils::bgp::{AfiSafi, RouteDistinguisher};
+use holo_protocol::InstanceShared;
+use holo_utils::bgp::{AfiSafi, RouteDistinguisher, RouteTarget};
+use holo_utils::ibus::IbusChannelsTx;
 use holo_utils::ip::{IpAddrKind, IpNetworkKind, Ipv4AddrExt, Ipv6AddrExt};
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use itertools::Itertools;
 
+use crate::ibus;
 use crate::neighbor::{
     Neighbor, NeighborUpdateQueue, NeighborUpdateQueues, PeerType,
 };
@@ -19,7 +23,7 @@ use crate::packet::iana::{Afi, Safi};
 use crate::packet::message::{
     Message, MpReachNlri, MpUnreachNlri, ReachNlri, UnreachNlri, UpdateMsg,
 };
-use crate::rib::{RoutingTable, RoutingTables};
+use crate::rib::{LocalRoute, RoutingTable, RoutingTables};
 
 // BGP address-family specific code.
 pub trait AddressFamily: Sized {
@@ -68,6 +72,23 @@ pub trait AddressFamily: Sized {
 
     // Build BGP UPDATE messages based on the provided update queue.
     fn build_updates(queue: &mut NeighborUpdateQueue<Self>) -> Vec<Message>;
+
+    fn vpn_import_install(
+        _prefix: Self::Prefix,
+        _route: &LocalRoute,
+        _shared: &InstanceShared,
+        _ibus_tx: &IbusChannelsTx,
+        _distance: u8,
+    ) {
+    }
+
+    fn vpn_import_uninstall(
+        _prefix: Self::Prefix,
+        _route: &LocalRoute,
+        _shared: &InstanceShared,
+        _ibus_tx: &IbusChannelsTx,
+    ) {
+    }
 }
 
 #[derive(Debug)]
@@ -418,6 +439,31 @@ impl AddressFamily for Vpnv4Unicast {
         // path. Phase C wires this after VRF export/import state exists.
         vec![]
     }
+
+    fn vpn_import_install(
+        prefix: Self::Prefix,
+        route: &LocalRoute,
+        shared: &InstanceShared,
+        ibus_tx: &IbusChannelsTx,
+        distance: u8,
+    ) {
+        vpn_import_install(
+            prefix.prefix.into(),
+            route,
+            shared,
+            ibus_tx,
+            distance,
+        );
+    }
+
+    fn vpn_import_uninstall(
+        prefix: Self::Prefix,
+        route: &LocalRoute,
+        shared: &InstanceShared,
+        ibus_tx: &IbusChannelsTx,
+    ) {
+        vpn_import_uninstall(prefix.prefix.into(), route, shared, ibus_tx);
+    }
 }
 
 // ===== impl Vpnv6Unicast =====
@@ -464,4 +510,84 @@ impl AddressFamily for Vpnv6Unicast {
         // path. Phase C wires this after VRF export/import state exists.
         vec![]
     }
+
+    fn vpn_import_install(
+        prefix: Self::Prefix,
+        route: &LocalRoute,
+        shared: &InstanceShared,
+        ibus_tx: &IbusChannelsTx,
+        distance: u8,
+    ) {
+        vpn_import_install(
+            prefix.prefix.into(),
+            route,
+            shared,
+            ibus_tx,
+            distance,
+        );
+    }
+
+    fn vpn_import_uninstall(
+        prefix: Self::Prefix,
+        route: &LocalRoute,
+        shared: &InstanceShared,
+        ibus_tx: &IbusChannelsTx,
+    ) {
+        vpn_import_uninstall(prefix.prefix.into(), route, shared, ibus_tx);
+    }
+}
+
+fn vpn_import_install(
+    prefix: IpNetwork,
+    route: &LocalRoute,
+    shared: &InstanceShared,
+    ibus_tx: &IbusChannelsTx,
+    distance: u8,
+) {
+    for table_id in vpn_import_table_ids(route, shared) {
+        ibus::tx::route_install(
+            ibus_tx,
+            Some(table_id),
+            prefix,
+            route,
+            distance,
+        );
+    }
+}
+
+fn vpn_import_uninstall(
+    prefix: IpNetwork,
+    route: &LocalRoute,
+    shared: &InstanceShared,
+    ibus_tx: &IbusChannelsTx,
+) {
+    for table_id in vpn_import_table_ids(route, shared) {
+        ibus::tx::route_uninstall(ibus_tx, Some(table_id), prefix);
+    }
+}
+
+fn vpn_import_table_ids(
+    route: &LocalRoute,
+    shared: &InstanceShared,
+) -> Vec<u32> {
+    let Some(route_rts) = route_import_rts(route) else {
+        return vec![];
+    };
+    let imports = shared.vpn_imports.lock().unwrap();
+    imports
+        .values()
+        .filter(|import| !import.import_rts.is_disjoint(&route_rts))
+        .filter_map(|import| import.table_id)
+        .collect()
+}
+
+fn route_import_rts(route: &LocalRoute) -> Option<BTreeSet<RouteTarget>> {
+    let ext_comm = route.attrs.ext_comm.as_ref()?;
+    let rts = ext_comm
+        .value
+        .0
+        .iter()
+        .filter_map(RouteTarget::from_ext_comm)
+        .collect::<BTreeSet<_>>();
+    (!rts.is_empty()).then_some(rts)
 }

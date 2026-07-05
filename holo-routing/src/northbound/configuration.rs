@@ -11,6 +11,8 @@ use std::sync::{Arc, LazyLock as Lazy};
 use enum_as_inner::EnumAsInner;
 use holo_northbound::NbDaemonSender;
 use holo_northbound::configuration::{self, CallbackKey, Callbacks, CallbacksBuilder, ConfigChanges, Provider, ValidationCallbacks, ValidationCallbacksBuilder};
+use holo_protocol::VpnImport;
+use holo_utils::bgp::RouteTarget;
 use holo_utils::bier::{BfrId, BierBift, BierBiftCfg, BierCfgEvent, BierEncapsulation, BierEncapsulationType, BierInBiftId, BierOutBiftId, BierSubDomainCfg, BiftNbr, Bsl, SubDomainId, UnderlayProtocolType};
 use holo_utils::ibus::IbusMsg;
 use holo_utils::ip::{AddressFamily, IpNetworkKind};
@@ -76,6 +78,7 @@ pub enum Event {
 pub struct NetworkInstance {
     pub enabled: bool,
     pub description: Option<String>,
+    pub import_rts: BTreeSet<RouteTarget>,
     // Kernel VRF table id, resolved from the learned VRF device of the same
     // name (None until the VRF device is learned). Consumed by per-VRF
     // routing.
@@ -205,6 +208,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .delete_apply(|master, args| {
             let name = args.list_entry.into_network_instance().unwrap();
             master.network_instances.remove(&name);
+            vpn_imports_update(master);
         })
         .lookup(|_master, _list_entry, dnode| {
             let name = dnode.get_string_relative("name").unwrap();
@@ -215,6 +219,7 @@ fn load_callbacks() -> Callbacks<Master> {
             let name = args.list_entry.into_network_instance().unwrap();
             let ni = master.network_instances.get_mut(&name).unwrap();
             ni.enabled = args.dnode.get_bool();
+            vpn_imports_update(master);
         })
         .path(network_instances::network_instance::description::PATH)
         .modify_apply(|master, args| {
@@ -226,6 +231,23 @@ fn load_callbacks() -> Callbacks<Master> {
             let name = args.list_entry.into_network_instance().unwrap();
             let ni = master.network_instances.get_mut(&name).unwrap();
             ni.description = None;
+        })
+        .path(network_instances::network_instance::l3vpn::import_route_target::PATH)
+        .create_apply(|master, args| {
+            let name = args.list_entry.into_network_instance().unwrap();
+            let rt = args.dnode.get_string();
+            let rt = RouteTarget::try_from_yang(&rt).unwrap();
+            let ni = master.network_instances.get_mut(&name).unwrap();
+            ni.import_rts.insert(rt);
+            vpn_imports_update(master);
+        })
+        .delete_apply(|master, args| {
+            let name = args.list_entry.into_network_instance().unwrap();
+            let rt = args.dnode.get_string();
+            let rt = RouteTarget::try_from_yang(&rt).unwrap();
+            let ni = master.network_instances.get_mut(&name).unwrap();
+            ni.import_rts.remove(&rt);
+            vpn_imports_update(master);
         })
         .path(control_plane_protocol::static_routes::ipv4::route::PATH)
         .create_apply(|master, args| {
@@ -1354,6 +1376,7 @@ fn network_instance_create(master: &mut Master, name: String) {
             ..Default::default()
         },
     );
+    vpn_imports_update(master);
 }
 
 #[cfg(test)]
@@ -1506,6 +1529,24 @@ fn static_route_table_id(master: &Master, route_key: &StaticRouteKey) -> Option<
         return None;
     };
     Some(Some(table_id))
+}
+
+pub(crate) fn vpn_imports_update(master: &Master) {
+    let imports = master
+        .network_instances
+        .iter()
+        .filter(|(_, ni)| ni.enabled && !ni.import_rts.is_empty())
+        .map(|(name, ni)| {
+            (
+                name.clone(),
+                VpnImport {
+                    table_id: ni.table_id,
+                    import_rts: ni.import_rts.clone(),
+                },
+            )
+        })
+        .collect();
+    *master.shared.vpn_imports.lock().unwrap() = imports;
 }
 
 fn static_nexthop_get(interfaces: &Interfaces, nexthop: &StaticRouteNexthop) -> Option<Nexthop> {

@@ -383,6 +383,58 @@ impl ToYang for RouteTarget {
     }
 }
 
+impl TryFromYang for RouteTarget {
+    fn try_from_yang(value: &str) -> Option<Self> {
+        if let Some(value) = value.strip_prefix("route-target:") {
+            let (global, local) = value.split_once(':')?;
+
+            if let Ok(asn) = global.parse::<u16>()
+                && let Ok(number) = local.parse::<u32>()
+            {
+                return Some(RouteTarget::As2Administrator { asn, number });
+            }
+
+            if let Ok(addr) = global.parse::<Ipv4Addr>()
+                && let Ok(number) = local.parse::<u16>()
+            {
+                return Some(RouteTarget::Ipv4Administrator { addr, number });
+            }
+
+            if let Ok(asn) = global.parse::<u32>()
+                && let Ok(number) = local.parse::<u16>()
+            {
+                return Some(RouteTarget::As4Administrator { asn, number });
+            }
+
+            return None;
+        }
+
+        let mut fields = value.split(':');
+        let comm_type = fields.next()?;
+        let global = fields.next()?;
+        let local = fields.next()?;
+        if fields.next().is_some() {
+            return None;
+        }
+
+        match comm_type {
+            "0" => Some(RouteTarget::As2Administrator {
+                asn: global.parse().ok()?,
+                number: local.parse().ok()?,
+            }),
+            "1" => Some(RouteTarget::Ipv4Administrator {
+                addr: global.parse().ok()?,
+                number: local.parse().ok()?,
+            }),
+            "2" => Some(RouteTarget::As4Administrator {
+                asn: global.parse().ok()?,
+                number: local.parse().ok()?,
+            }),
+            _ => None,
+        }
+    }
+}
+
 // ===== impl Extv6Comm =====
 
 impl ToYang for Extv6Comm {

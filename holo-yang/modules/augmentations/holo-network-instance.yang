@@ -11,6 +11,10 @@ module holo-network-instance {
     prefix ni;
   }
 
+  import ietf-routing-types {
+    prefix rt-types;
+  }
+
   organization
     "Holo Routing Stack";
 
@@ -41,7 +45,18 @@ module holo-network-instance {
 
   augment "/ni:network-instances/ni:network-instance" {
     description
-      "Operational state learned for the network instance (VRF).";
+      "L3VPN import configuration and operational state for the network
+       instance (VRF).";
+    container l3vpn {
+      description
+        "L3VPN import settings for this network instance.";
+      leaf-list import-route-target {
+        type rt-types:route-target;
+        description
+          "Route Targets imported from the VPN Loc-RIB into this network
+           instance.";
+      }
+    }
     container state {
       config false;
       description "Network-instance operational state.";

@@ -832,6 +832,7 @@ where
             mpath_cfg,
             &instance.config.distance,
             &instance.config.trace_opts,
+            instance.shared,
             &instance.tx.ibus,
         );
 

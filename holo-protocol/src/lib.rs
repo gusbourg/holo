@@ -8,6 +8,7 @@ pub mod event_recorder;
 #[cfg(feature = "testing")]
 pub mod test;
 
+use std::collections::{BTreeMap, BTreeSet};
 #[cfg(not(feature = "testing"))]
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex};
@@ -20,6 +21,7 @@ use holo_northbound::{
     NbDaemonReceiver, NbDaemonSender, NbProviderSender, process_northbound_msg,
 };
 use holo_utils::Database;
+use holo_utils::bgp::RouteTarget;
 use holo_utils::bier::BierCfg;
 use holo_utils::ibus::{IbusChannelsTx, IbusMsg, IbusReceiver, IbusSender};
 use holo_utils::keychain::Keychains;
@@ -108,8 +110,16 @@ pub struct InstanceShared {
     pub sr_config: Arc<SrCfg>,
     // Global BIER configuration.
     pub bier_config: Arc<BierCfg>,
+    // VPN import state learned from network-instance configuration.
+    pub vpn_imports: Arc<Mutex<BTreeMap<String, VpnImport>>>,
     // Event recorder configuration.
     pub event_recorder_config: Option<event_recorder::Config>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct VpnImport {
+    pub table_id: Option<u32>,
+    pub import_rts: BTreeSet<RouteTarget>,
 }
 
 /// Instance input message.
@@ -168,6 +178,7 @@ impl std::fmt::Debug for InstanceShared {
             .field("policies", &self.policies)
             .field("sr_config", &self.sr_config)
             .field("bier_config", &self.bier_config)
+            .field("vpn_imports", &self.vpn_imports)
             .finish()
     }
 }

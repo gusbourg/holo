@@ -4,12 +4,14 @@
       {
         "name": "lo",
         "type": "iana-if-type:softwareLoopback",
-        "ietf-ip:ipv4": {}
+        "ietf-ip:ipv4": {},
+        "ietf-ip:ipv6": {}
       },
       {
         "name": "eth-rt2",
         "type": "iana-if-type:ethernetCsmacd",
-        "ietf-ip:ipv4": {}
+        "ietf-ip:ipv4": {},
+        "ietf-ip:ipv6": {}
       }
     ]
   },
@@ -28,6 +30,10 @@
                   {
                     "name": "iana-bgp-types:ipv4-labeled-unicast",
                     "enabled": true
+                  },
+                  {
+                    "name": "iana-bgp-types:ipv6-labeled-unicast",
+                    "enabled": true
                   }
                 ]
               }
@@ -41,6 +47,14 @@
                     "afi-safi": [
                       {
                         "name": "iana-bgp-types:ipv4-labeled-unicast",
+                        "enabled": true,
+                        "apply-policy": {
+                          "default-import-policy": "accept-route",
+                          "default-export-policy": "accept-route"
+                        }
+                      },
+                      {
+                        "name": "iana-bgp-types:ipv6-labeled-unicast",
                         "enabled": true,
                         "apply-policy": {
                           "default-import-policy": "accept-route",

@@ -12,10 +12,14 @@ use std::time::Instant;
 
 use holo_utils::bgp::RouteType;
 use holo_utils::ibus::IbusChannelsTx;
+use holo_utils::mpls::Label;
 use holo_utils::protocol::Protocol;
 use serde::{Deserialize, Serialize};
 
-use crate::af::{AddressFamily, Ipv4Unicast, Ipv6Unicast};
+use crate::af::{
+    AddressFamily, Ipv4LabeledUnicast, Ipv4Unicast, Ipv6LabeledUnicast,
+    Ipv6Unicast,
+};
 use crate::debug::Debug;
 use crate::ibus;
 use crate::neighbor::{Neighbor, PeerType};
@@ -43,6 +47,8 @@ pub struct Rib {
 pub struct RoutingTables {
     pub ipv4_unicast: RoutingTable<Ipv4Unicast>,
     pub ipv6_unicast: RoutingTable<Ipv6Unicast>,
+    pub ipv4_labeled_unicast: RoutingTable<Ipv4LabeledUnicast>,
+    pub ipv6_labeled_unicast: RoutingTable<Ipv6LabeledUnicast>,
 }
 
 #[derive(Debug)]
@@ -72,6 +78,7 @@ pub struct LocalRoute {
     pub origin: RouteOrigin,
     pub attrs: RouteAttrs,
     pub route_type: RouteType,
+    pub label: Option<Label>,
     pub last_modified: Instant,
     pub nexthops: Option<BTreeSet<IpAddr>>,
 }
@@ -81,6 +88,7 @@ pub struct Route {
     pub origin: RouteOrigin,
     pub attrs: RouteAttrs,
     pub route_type: RouteType,
+    pub label: Option<Label>,
     pub igp_cost: Option<u32>,
     pub last_modified: Instant,
     pub ineligible_reason: Option<RouteIneligibleReason>,
@@ -303,6 +311,7 @@ impl Route {
             origin,
             attrs,
             route_type,
+            label: None,
             igp_cost: None,
             last_modified: Instant::now(),
             ineligible_reason: None,
@@ -314,6 +323,7 @@ impl Route {
         RoutePolicyInfo {
             origin: self.origin,
             route_type: self.route_type,
+            label: self.label,
             tag: None,
             opaque_attrs: None,
             attrs: self.attrs.get(),
@@ -800,6 +810,7 @@ pub(crate) fn loc_rib_update<A>(
             && local_route.origin == best_route.origin
             && local_route.attrs == best_route.attrs
             && local_route.route_type == best_route.route_type
+            && local_route.label == best_route.label
             && local_route.nexthops == nexthops
         {
             return;
@@ -810,6 +821,7 @@ pub(crate) fn loc_rib_update<A>(
             origin: best_route.origin,
             attrs: best_route.attrs,
             route_type: best_route.route_type,
+            label: best_route.label,
             last_modified: best_route.last_modified,
             nexthops,
         };
@@ -955,6 +967,7 @@ mod tests {
             origin,
             attrs,
             route_type,
+            label: None,
             igp_cost,
             last_modified: Instant::now(),
             ineligible_reason: None,

@@ -15,13 +15,17 @@ use chrono::{DateTime, Utc};
 use holo_protocol::InstanceChannelsTx;
 use holo_utils::bgp::{AfiSafi, RouteType, WellKnownCommunities};
 use holo_utils::ibus::IbusChannelsTx;
+use holo_utils::mpls::Label;
 use holo_utils::socket::{TTL_MAX, TcpConnInfo, TcpStream};
 use holo_utils::task::{IntervalTask, Task, TimeoutTask};
 use num_traits::{FromPrimitive, ToPrimitive};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 
-use crate::af::{AddressFamily, Ipv4Unicast, Ipv6Unicast};
+use crate::af::{
+    AddressFamily, Ipv4LabeledUnicast, Ipv4Unicast, Ipv6LabeledUnicast,
+    Ipv6Unicast,
+};
 use crate::debug::Debug;
 use crate::error::Error;
 use crate::instance::{Instance, InstanceUpView};
@@ -113,12 +117,14 @@ pub struct NeighborTasks {
 pub struct NeighborUpdateQueues {
     pub ipv4_unicast: NeighborUpdateQueue<Ipv4Unicast>,
     pub ipv6_unicast: NeighborUpdateQueue<Ipv6Unicast>,
+    pub ipv4_labeled_unicast: NeighborUpdateQueue<Ipv4LabeledUnicast>,
+    pub ipv6_labeled_unicast: NeighborUpdateQueue<Ipv6LabeledUnicast>,
 }
 
 // Neighbor Tx update queue.
 #[derive(Debug)]
 pub struct NeighborUpdateQueue<A: AddressFamily> {
-    pub reach: BTreeMap<Attrs, BTreeSet<A::Prefix>>,
+    pub reach: BTreeMap<Attrs, BTreeMap<A::Prefix, Option<Label>>>,
     pub unreach: BTreeSet<A::Prefix>,
 }
 
@@ -585,6 +591,8 @@ impl Neighbor {
         // Send initial routing updates.
         self.initial_routing_update::<Ipv4Unicast>(instance);
         self.initial_routing_update::<Ipv6Unicast>(instance);
+        self.initial_routing_update::<Ipv4LabeledUnicast>(instance);
+        self.initial_routing_update::<Ipv6LabeledUnicast>(instance);
     }
 
     // Closes the BGP session, performing necessary cleanup and releasing resources.
@@ -613,6 +621,8 @@ impl Neighbor {
         self.capabilities_nego.clear();
         self.clear_routes::<Ipv4Unicast>(rib, &instance_tx.ibus);
         self.clear_routes::<Ipv6Unicast>(rib, &instance_tx.ibus);
+        self.clear_routes::<Ipv4LabeledUnicast>(rib, &instance_tx.ibus);
+        self.clear_routes::<Ipv6LabeledUnicast>(rib, &instance_tx.ibus);
         self.tasks = Default::default();
         self.msg_txp = None;
 
@@ -693,6 +703,24 @@ impl Neighbor {
             capabilities.insert(Capability::MultiProtocol {
                 afi: Afi::Ipv6,
                 safi: Safi::Unicast,
+            });
+        }
+        if let Some(afi_safi) =
+            self.config.afi_safi.get(&AfiSafi::Ipv4LabeledUnicast)
+            && afi_safi.enabled
+        {
+            capabilities.insert(Capability::MultiProtocol {
+                afi: Afi::Ipv4,
+                safi: Safi::LabeledUnicast,
+            });
+        }
+        if let Some(afi_safi) =
+            self.config.afi_safi.get(&AfiSafi::Ipv6LabeledUnicast)
+            && afi_safi.enabled
+        {
+            capabilities.insert(Capability::MultiProtocol {
+                afi: Afi::Ipv6,
+                safi: Safi::LabeledUnicast,
             });
         }
 
@@ -917,6 +945,7 @@ impl Neighbor {
                         origin: route.origin,
                         attrs: route.attrs.clone(),
                         route_type: route.route_type,
+                        label: route.label,
                         igp_cost: None,
                         last_modified: route.last_modified,
                         ineligible_reason: None,
@@ -966,7 +995,11 @@ impl Neighbor {
 
             // Update neighbor's Tx queue.
             let update_queue = A::update_queue(&mut self.update_queues);
-            update_queue.reach.entry(attrs).or_default().insert(*prefix);
+            update_queue
+                .reach
+                .entry(attrs)
+                .or_default()
+                .insert(*prefix, route.label);
         }
     }
 
@@ -1027,6 +1060,8 @@ impl Neighbor {
                 // Re-send the current Adj-RIB-Out to this neighbor.
                 self.resend_adj_rib_out::<Ipv4Unicast>(instance);
                 self.resend_adj_rib_out::<Ipv6Unicast>(instance);
+                self.resend_adj_rib_out::<Ipv4LabeledUnicast>(instance);
+                self.resend_adj_rib_out::<Ipv6LabeledUnicast>(instance);
                 let msg_list = self.update_queues.build_updates();
                 if !msg_list.is_empty() {
                     self.message_list_send(msg_list);
@@ -1153,6 +1188,8 @@ impl NeighborUpdateQueues {
         [
             self.ipv4_unicast.build_updates(),
             self.ipv6_unicast.build_updates(),
+            self.ipv4_labeled_unicast.build_updates(),
+            self.ipv6_labeled_unicast.build_updates(),
         ]
         .concat()
     }

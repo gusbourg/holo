@@ -816,6 +816,7 @@ where
             &instance.config.distance,
             &instance.config.trace_opts,
             &instance.tx.ibus,
+            instance.shared,
         );
 
         // Group best routes and unfeasible routes separately.

@@ -10,6 +10,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::Instant;
 
+use holo_protocol::InstanceShared;
 use holo_utils::bgp::RouteType;
 use holo_utils::ibus::IbusChannelsTx;
 use holo_utils::mpls::Label;
@@ -79,6 +80,7 @@ pub struct LocalRoute {
     pub attrs: RouteAttrs,
     pub route_type: RouteType,
     pub label: Option<Label>,
+    pub nexthop_label: Option<Label>,
     pub last_modified: Instant,
     pub nexthops: Option<BTreeSet<IpAddr>>,
 }
@@ -792,6 +794,7 @@ pub(crate) fn loc_rib_update<A>(
     distance_cfg: &DistanceCfg,
     trace_opts: &InstanceTraceOptions,
     ibus_tx: &IbusChannelsTx,
+    shared: &InstanceShared,
 ) where
     A: AddressFamily,
 {
@@ -810,18 +813,22 @@ pub(crate) fn loc_rib_update<A>(
             && local_route.origin == best_route.origin
             && local_route.attrs == best_route.attrs
             && local_route.route_type == best_route.route_type
-            && local_route.label == best_route.label
+            && local_route.nexthop_label == best_route.label
             && local_route.nexthops == nexthops
         {
             return;
         }
+
+        let local_label = local_label_update::<A>(dest, shared);
+        let old_local_route = dest.local.as_ref().map(|route| &**route);
 
         // Create new local route.
         let local_route = LocalRoute {
             origin: best_route.origin,
             attrs: best_route.attrs,
             route_type: best_route.route_type,
-            label: best_route.label,
+            label: local_label,
+            nexthop_label: best_route.label,
             last_modified: best_route.last_modified,
             nexthops,
         };
@@ -836,6 +843,15 @@ pub(crate) fn loc_rib_update<A>(
                     RouteType::Internal => distance_cfg.internal,
                     RouteType::External => distance_cfg.external,
                 },
+            );
+        }
+
+        if local_route.label.is_some() {
+            ibus::tx::label_install(
+                ibus_tx,
+                A::prefix_to_ip_network(prefix),
+                &local_route,
+                old_local_route,
             );
         }
 
@@ -858,8 +874,39 @@ pub(crate) fn loc_rib_update<A>(
                     A::prefix_to_ip_network(prefix),
                 );
             }
+            if local_route.label.is_some() {
+                ibus::tx::label_uninstall(
+                    ibus_tx,
+                    A::prefix_to_ip_network(prefix),
+                    &local_route,
+                );
+                if let Some(label) = local_route.label {
+                    let mut label_manager =
+                        shared.label_manager.lock().unwrap();
+                    label_manager.label_release(label);
+                }
+            }
         }
     }
+}
+
+fn local_label_update<A>(
+    dest: &Destination,
+    shared: &InstanceShared,
+) -> Option<Label>
+where
+    A: AddressFamily,
+{
+    if A::SAFI != crate::packet::iana::Safi::LabeledUnicast {
+        return None;
+    }
+
+    if let Some(label) = dest.local.as_ref().and_then(|route| route.label) {
+        return Some(label);
+    }
+
+    let mut label_manager = shared.label_manager.lock().unwrap();
+    label_manager.label_request().ok()
 }
 
 pub(crate) fn attrs_tx_update<A>(

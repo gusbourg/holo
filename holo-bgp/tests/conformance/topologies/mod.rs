@@ -32,3 +32,8 @@ async fn l3vpn_1() {
 async fn evpn_1() {
     run_test_topology::<Instance>("evpn-1", "rt1").await;
 }
+
+#[tokio::test]
+async fn prefix_limit_1() {
+    run_test_topology::<Instance>("prefix-limit-1", "rt1").await;
+}

@@ -240,7 +240,7 @@ fn process_nbr_update(
                         })
                         .collect();
                     process_nbr_reach_prefixes_pre_policy::<Vpnv4Unicast>(
-                        nbr, rib, prefixes, attrs,
+                        nbr, rib, prefixes, attrs, ibus_tx,
                     );
                 }
                 MpReachNlri::L3vpnIpv6Unicast { prefixes, nexthop } => {
@@ -258,7 +258,7 @@ fn process_nbr_update(
                         })
                         .collect();
                     process_nbr_reach_prefixes_pre_policy::<Vpnv6Unicast>(
-                        nbr, rib, prefixes, attrs,
+                        nbr, rib, prefixes, attrs, ibus_tx,
                     );
                 }
             }
@@ -435,6 +435,7 @@ fn process_nbr_reach_prefixes_pre_policy<A>(
     rib: &mut Rib,
     nlri_prefixes: Vec<(A::Prefix, Label)>,
     attrs: Attrs,
+    ibus_tx: &IbusChannelsTx,
 ) where
     A: AddressFamily,
 {
@@ -453,8 +454,9 @@ fn process_nbr_reach_prefixes_pre_policy<A>(
         PeerType::External => RouteType::External,
     };
 
-    // Keep VPN routes in Adj-RIB-In until the import policy path can carry
-    // RD-qualified keys instead of plain IP networks.
+    // Keep VPN routes in Adj-RIB-In and accept them into post-policy until the
+    // import policy path can carry RD-qualified keys instead of plain IP
+    // networks.
     let table = A::table(&mut rib.tables);
     let route_attrs = rib.attr_sets.get_route_attr_sets(&attrs);
     for (prefix, label) in nlri_prefixes {
@@ -462,7 +464,14 @@ fn process_nbr_reach_prefixes_pre_policy<A>(
         let adj_rib = dest.adj_rib.entry(nbr.remote_addr).or_default();
         let mut route = Route::new(origin, route_attrs.clone(), route_type);
         route.vpn_label = Some(label);
-        adj_rib.update_in_pre(Box::new(route), &mut rib.attr_sets);
+
+        if let Some(old_route) = adj_rib.in_post() {
+            rib::nexthop_untrack(&mut table.nht, &prefix, old_route, ibus_tx);
+        }
+        rib::nexthop_track(&mut table.nht, prefix, &route, ibus_tx);
+
+        adj_rib.update_in_pre(Box::new(route.clone()), &mut rib.attr_sets);
+        adj_rib.update_in_post(Box::new(route), &mut rib.attr_sets);
 
         // Enqueue the prefix so later decision-process wiring sees all VPN
         // changes that arrived before full import/export support.
@@ -833,48 +842,51 @@ where
         }
     }
 
-    // Phase 3: Route Dissemination.
-    for nbr in neighbors
-        .values_mut()
-        .filter(|nbr| nbr.state == fsm::State::Established)
-    {
-        // Skip neighbors that haven't this address-family enabled.
-        if !nbr.is_af_enabled(A::AFI, A::SAFI) {
-            continue;
-        }
+    if A::DISSEMINATE {
+        // Phase 3: Route Dissemination.
+        for nbr in neighbors
+            .values_mut()
+            .filter(|nbr| nbr.state == fsm::State::Established)
+        {
+            // Skip neighbors that haven't this address-family enabled.
+            if !nbr.is_af_enabled(A::AFI, A::SAFI) {
+                continue;
+            }
 
-        // Evaluate routes eligible for distribution to this neighbor.
-        //
-        // Any routes that fail to meet the distribution criteria are marked
-        // as unreachable to ensure previous advertisements are withdrawn.
-        let mut nbr_unreach = unreach.clone();
-        let mut nbr_reach = reach.clone();
-        nbr_unreach.extend(
-            nbr_reach
-                .extract_if(.., |(_, route)| !nbr.distribute_filter(route))
-                .map(|(prefix, _)| prefix),
-        );
-
-        // Withdraw unfeasible routes immediately.
-        if !nbr_unreach.is_empty() {
-            withdraw_routes::<A>(
-                nbr,
-                table,
-                &nbr_unreach,
-                &mut instance.state.rib.attr_sets,
+            // Evaluate routes eligible for distribution to this neighbor.
+            //
+            // Any routes that fail to meet the distribution criteria are
+            // marked as unreachable to ensure previous advertisements are
+            // withdrawn.
+            let mut nbr_unreach = unreach.clone();
+            let mut nbr_reach = reach.clone();
+            nbr_unreach.extend(
+                nbr_reach
+                    .extract_if(.., |(_, route)| !nbr.distribute_filter(route))
+                    .map(|(prefix, _)| prefix),
             );
-        }
 
-        // Advertise best routes.
-        if !nbr_reach.is_empty() {
-            advertise_routes::<A>(
-                nbr,
-                table,
-                nbr_reach,
-                instance.shared,
-                &mut instance.state.rib.attr_sets,
-                &instance.state.policy_apply_tasks,
-            );
+            // Withdraw unfeasible routes immediately.
+            if !nbr_unreach.is_empty() {
+                withdraw_routes::<A>(
+                    nbr,
+                    table,
+                    &nbr_unreach,
+                    &mut instance.state.rib.attr_sets,
+                );
+            }
+
+            // Advertise best routes.
+            if !nbr_reach.is_empty() {
+                advertise_routes::<A>(
+                    nbr,
+                    table,
+                    nbr_reach,
+                    instance.shared,
+                    &mut instance.state.rib.attr_sets,
+                    &instance.state.policy_apply_tasks,
+                );
+            }
         }
     }
 

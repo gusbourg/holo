@@ -825,7 +825,7 @@ pub(crate) fn loc_rib_update<A>(
         };
 
         // Install local route in the global RIB.
-        if !local_route.origin.is_local() {
+        if A::INSTALL_LOC_RIB && !local_route.origin.is_local() {
             ibus::tx::route_install(
                 ibus_tx,
                 A::prefix_to_ip_network(prefix),
@@ -850,7 +850,7 @@ pub(crate) fn loc_rib_update<A>(
             attr_sets.remove_route_attr_sets(&local_route.attrs);
 
             // Uninstall route from the global RIB.
-            if !local_route.origin.is_local() {
+            if A::INSTALL_LOC_RIB && !local_route.origin.is_local() {
                 ibus::tx::route_uninstall(
                     ibus_tx,
                     A::prefix_to_ip_network(prefix),

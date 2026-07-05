@@ -20,7 +20,7 @@ use holo_utils::task::{Task, TimeoutTask};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender};
 
-use crate::af::{Ipv4Unicast, Ipv6Unicast};
+use crate::af::{Ipv4Unicast, Ipv6Unicast, Vpnv4Unicast, Vpnv6Unicast};
 use crate::debug::{Debug, InstanceInactiveReason};
 use crate::error::{Error, IoError};
 use crate::neighbor::{Neighbors, fsm};
@@ -615,6 +615,8 @@ fn process_protocol_msg(
         ProtocolInputMsg::TriggerDecisionProcess(_) => {
             events::decision_process::<Ipv4Unicast>(instance, neighbors)?;
             events::decision_process::<Ipv6Unicast>(instance, neighbors)?;
+            events::decision_process::<Vpnv4Unicast>(instance, neighbors)?;
+            events::decision_process::<Vpnv6Unicast>(instance, neighbors)?;
         }
     }
 

@@ -12,7 +12,9 @@ use holo_utils::protocol::Protocol;
 use holo_utils::southbound::{RouteKeyMsg, RouteMsg};
 use ipnetwork::IpNetwork;
 
-use crate::af::{AddressFamily, Ipv4Unicast, Ipv6Unicast};
+use crate::af::{
+    AddressFamily, Ipv4Unicast, Ipv6Unicast, Vpnv4Unicast, Vpnv6Unicast,
+};
 use crate::debug::Debug;
 use crate::instance::{Instance, InstanceUpView};
 use crate::policy::RoutePolicyInfo;
@@ -44,6 +46,8 @@ pub(crate) fn process_nht_update(
 
     process_nht_update_af::<Ipv4Unicast>(&mut instance, addr, metric);
     process_nht_update_af::<Ipv6Unicast>(&mut instance, addr, metric);
+    process_nht_update_af::<Vpnv4Unicast>(&mut instance, addr, metric);
+    process_nht_update_af::<Vpnv6Unicast>(&mut instance, addr, metric);
 }
 
 pub(crate) fn process_route_add(instance: &mut Instance, msg: RouteMsg) {

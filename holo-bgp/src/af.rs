@@ -37,6 +37,13 @@ pub trait AddressFamily: Sized {
     // The NLRI key used by the BGP RIB for this address family.
     type Prefix: Copy + Ord;
 
+    // Whether selected Loc-RIB routes should be installed in the global RIB.
+    const INSTALL_LOC_RIB: bool = true;
+
+    // Whether selected Loc-RIB routes should be advertised to neighbors by
+    // the generic policy path.
+    const DISSEMINATE: bool = true;
+
     // Get the routing table for this address family from the provided
     // `RoutingTables`.
     fn table(tables: &mut RoutingTables) -> &mut RoutingTable<Self>;
@@ -373,6 +380,8 @@ impl AddressFamily for Vpnv4Unicast {
     const AFI: Afi = Afi::Ipv4;
     const SAFI: Safi = Safi::LabeledVpn;
     const AFI_SAFI: AfiSafi = AfiSafi::L3vpnIpv4Unicast;
+    const INSTALL_LOC_RIB: bool = false;
+    const DISSEMINATE: bool = false;
 
     type IpAddr = Ipv4Addr;
     type IpNetwork = Ipv4Network;
@@ -417,6 +426,8 @@ impl AddressFamily for Vpnv6Unicast {
     const AFI: Afi = Afi::Ipv6;
     const SAFI: Safi = Safi::LabeledVpn;
     const AFI_SAFI: AfiSafi = AfiSafi::L3vpnIpv6Unicast;
+    const INSTALL_LOC_RIB: bool = false;
+    const DISSEMINATE: bool = false;
 
     type IpAddr = Ipv6Addr;
     type IpNetwork = Ipv6Network;

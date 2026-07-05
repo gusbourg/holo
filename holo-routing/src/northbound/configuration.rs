@@ -200,17 +200,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .path(network_instances::network_instance::PATH)
         .create_apply(|master, args| {
             let name = args.dnode.get_string_relative("name").unwrap();
-            // Resolve the kernel table id if the VRF device was already
-            // learned from the kernel (otherwise resolved on InterfaceUpd).
-            let table_id = master.interfaces.vrf_table_id(&name);
-            master.network_instances.insert(
-                name,
-                NetworkInstance {
-                    enabled: true,
-                    table_id,
-                    ..Default::default()
-                },
-            );
+            network_instance_create(master, name);
         })
         .delete_apply(|master, args| {
             let name = args.list_entry.into_network_instance().unwrap();
@@ -1350,6 +1340,98 @@ fn instance_start(master: &mut Master, protocol: Protocol, name: String, network
     // type and name.
     let instance = InstanceHandle::new(nb_daemon_tx, ibus_instance_tx);
     master.instances.insert(instance_id, instance);
+}
+
+fn network_instance_create(master: &mut Master, name: String) {
+    // Resolve the kernel table id if the VRF device was already learned from
+    // the kernel (otherwise resolved on InterfaceUpd).
+    let table_id = master.interfaces.vrf_table_id(&name);
+    master.network_instances.insert(
+        name,
+        NetworkInstance {
+            enabled: true,
+            table_id,
+            ..Default::default()
+        },
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use holo_protocol::InstanceShared;
+    use holo_utils::ibus::{IbusMsg, ibus_channels};
+    use holo_utils::southbound::{InterfaceFlags, InterfaceUpdateMsg};
+    use tokio::sync::mpsc;
+
+    use crate::birt::Birt;
+    use crate::netlink::NetlinkRequest;
+    use crate::rib::Rib;
+    use crate::{Master, ibus};
+
+    use super::network_instance_create;
+
+    fn test_master() -> Master {
+        let (nb_tx, _nb_rx) = mpsc::unbounded_channel();
+        let (ibus_tx, _ibus_rx) = ibus_channels();
+        let (netlink_tx, _netlink_rx) =
+            mpsc::unbounded_channel::<NetlinkRequest>();
+        let (rib_update_tx, _rib_update_rx) = mpsc::unbounded_channel();
+        let (birt_update_tx, _birt_update_rx) = mpsc::unbounded_channel();
+
+        Master {
+            nb_tx,
+            ibus_tx,
+            netlink_tx,
+            shared: InstanceShared::default(),
+            interfaces: Default::default(),
+            rib: Rib::new(rib_update_tx),
+            network_instances: Default::default(),
+            instance_ni: Default::default(),
+            static_routes: Default::default(),
+            sr_config: Default::default(),
+            bier_config: Default::default(),
+            instances: Default::default(),
+            birt: Birt::new(birt_update_tx),
+        }
+    }
+
+    #[test]
+    fn network_instance_create_resolves_prelearned_vrf_table() {
+        let mut master = test_master();
+        master.interfaces.update(
+            "blue".to_owned(),
+            10,
+            InterfaceFlags::OPERATIVE,
+            Some(1001),
+        );
+
+        network_instance_create(&mut master, "blue".to_owned());
+
+        assert_eq!(master.network_instances["blue"].table_id, Some(1001));
+    }
+
+    #[test]
+    fn interface_update_resolves_existing_network_instance_table() {
+        let mut master = test_master();
+        network_instance_create(&mut master, "red".to_owned());
+        assert_eq!(master.network_instances["red"].table_id, None);
+
+        ibus::process_notification_msg(
+            &mut master,
+            IbusMsg::InterfaceUpd(InterfaceUpdateMsg {
+                ifname: "red".to_owned(),
+                ifindex: 11,
+                mtu: 1500,
+                flags: InterfaceFlags::OPERATIVE,
+                mac_address: Default::default(),
+                msd: Default::default(),
+                master_ifindex: None,
+                vrf_table_id: Some(1002),
+            }),
+        );
+
+        assert_eq!(master.network_instances["red"].table_id, Some(1002));
+    }
 }
 
 fn remove_instance(master: &mut Master, instance_id: &InstanceId) {

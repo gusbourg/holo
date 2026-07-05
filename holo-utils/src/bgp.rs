@@ -12,7 +12,7 @@
 //! eliminating the need for shared definitions.
 
 use std::borrow::Cow;
-use std::net::Ipv6Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use holo_yang::{ToYang, TryFromYang};
 use itertools::Itertools;
@@ -28,6 +28,8 @@ use serde::{Deserialize, Serialize};
 pub enum AfiSafi {
     Ipv4Unicast,
     Ipv6Unicast,
+    L3vpnIpv4Unicast,
+    L3vpnIpv6Unicast,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -54,6 +56,22 @@ pub struct Comm(pub u32);
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[derive(Deserialize, Serialize)]
 pub struct ExtComm(pub [u8; 8]);
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Deserialize, Serialize)]
+pub enum RouteDistinguisher {
+    As2Administrator { asn: u16, number: u32 },
+    Ipv4Administrator { addr: Ipv4Addr, number: u16 },
+    As4Administrator { asn: u32, number: u16 },
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Deserialize, Serialize)]
+pub enum RouteTarget {
+    As2Administrator { asn: u16, number: u32 },
+    Ipv4Administrator { addr: Ipv4Addr, number: u16 },
+    As4Administrator { asn: u32, number: u16 },
+}
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[derive(Deserialize, Serialize)]
@@ -84,6 +102,12 @@ impl ToYang for AfiSafi {
         match self {
             AfiSafi::Ipv4Unicast => "iana-bgp-types:ipv4-unicast".into(),
             AfiSafi::Ipv6Unicast => "iana-bgp-types:ipv6-unicast".into(),
+            AfiSafi::L3vpnIpv4Unicast => {
+                "iana-bgp-types:l3vpn-ipv4-unicast".into()
+            }
+            AfiSafi::L3vpnIpv6Unicast => {
+                "iana-bgp-types:l3vpn-ipv6-unicast".into()
+            }
         }
     }
 }
@@ -93,6 +117,12 @@ impl TryFromYang for AfiSafi {
         match value {
             "iana-bgp-types:ipv4-unicast" => Some(AfiSafi::Ipv4Unicast),
             "iana-bgp-types:ipv6-unicast" => Some(AfiSafi::Ipv6Unicast),
+            "iana-bgp-types:l3vpn-ipv4-unicast" => {
+                Some(AfiSafi::L3vpnIpv4Unicast)
+            }
+            "iana-bgp-types:l3vpn-ipv6-unicast" => {
+                Some(AfiSafi::L3vpnIpv6Unicast)
+            }
             _ => None,
         }
     }
@@ -206,6 +236,10 @@ impl TryFromYang for Comm {
 
 impl ToYang for ExtComm {
     fn to_yang(&self) -> Cow<'static, str> {
+        if let Some(rt) = RouteTarget::from_ext_comm(self) {
+            return rt.to_yang();
+        }
+
         // TODO: cover other cases instead of always using the raw format.
         format!(
             "raw:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
@@ -219,6 +253,133 @@ impl ToYang for ExtComm {
             self.0[7]
         )
         .into()
+    }
+}
+
+// ===== impl RouteDistinguisher =====
+
+impl RouteDistinguisher {
+    pub fn encode(self) -> [u8; 8] {
+        let mut bytes = [0; 8];
+        match self {
+            RouteDistinguisher::As2Administrator { asn, number } => {
+                bytes[0..2].copy_from_slice(&0u16.to_be_bytes());
+                bytes[2..4].copy_from_slice(&asn.to_be_bytes());
+                bytes[4..8].copy_from_slice(&number.to_be_bytes());
+            }
+            RouteDistinguisher::Ipv4Administrator { addr, number } => {
+                bytes[0..2].copy_from_slice(&1u16.to_be_bytes());
+                bytes[2..6].copy_from_slice(&addr.octets());
+                bytes[6..8].copy_from_slice(&number.to_be_bytes());
+            }
+            RouteDistinguisher::As4Administrator { asn, number } => {
+                bytes[0..2].copy_from_slice(&2u16.to_be_bytes());
+                bytes[2..6].copy_from_slice(&asn.to_be_bytes());
+                bytes[6..8].copy_from_slice(&number.to_be_bytes());
+            }
+        }
+        bytes
+    }
+
+    pub fn decode(bytes: [u8; 8]) -> Option<Self> {
+        match u16::from_be_bytes(bytes[0..2].try_into().unwrap()) {
+            0 => Some(RouteDistinguisher::As2Administrator {
+                asn: u16::from_be_bytes(bytes[2..4].try_into().unwrap()),
+                number: u32::from_be_bytes(bytes[4..8].try_into().unwrap()),
+            }),
+            1 => Some(RouteDistinguisher::Ipv4Administrator {
+                addr: Ipv4Addr::from(u32::from_be_bytes(
+                    bytes[2..6].try_into().unwrap(),
+                )),
+                number: u16::from_be_bytes(bytes[6..8].try_into().unwrap()),
+            }),
+            2 => Some(RouteDistinguisher::As4Administrator {
+                asn: u32::from_be_bytes(bytes[2..6].try_into().unwrap()),
+                number: u16::from_be_bytes(bytes[6..8].try_into().unwrap()),
+            }),
+            _ => None,
+        }
+    }
+}
+
+impl ToYang for RouteDistinguisher {
+    fn to_yang(&self) -> Cow<'static, str> {
+        match self {
+            RouteDistinguisher::As2Administrator { asn, number } => {
+                format!("{asn}:{number}").into()
+            }
+            RouteDistinguisher::Ipv4Administrator { addr, number } => {
+                format!("{addr}:{number}").into()
+            }
+            RouteDistinguisher::As4Administrator { asn, number } => {
+                format!("{asn}:{number}").into()
+            }
+        }
+    }
+}
+
+// ===== impl RouteTarget =====
+
+impl RouteTarget {
+    pub fn to_ext_comm(self) -> ExtComm {
+        let mut bytes = [0; 8];
+        match self {
+            RouteTarget::As2Administrator { asn, number } => {
+                bytes[0] = 0x00;
+                bytes[1] = 0x02;
+                bytes[2..4].copy_from_slice(&asn.to_be_bytes());
+                bytes[4..8].copy_from_slice(&number.to_be_bytes());
+            }
+            RouteTarget::Ipv4Administrator { addr, number } => {
+                bytes[0] = 0x01;
+                bytes[1] = 0x02;
+                bytes[2..6].copy_from_slice(&addr.octets());
+                bytes[6..8].copy_from_slice(&number.to_be_bytes());
+            }
+            RouteTarget::As4Administrator { asn, number } => {
+                bytes[0] = 0x02;
+                bytes[1] = 0x02;
+                bytes[2..6].copy_from_slice(&asn.to_be_bytes());
+                bytes[6..8].copy_from_slice(&number.to_be_bytes());
+            }
+        }
+        ExtComm(bytes)
+    }
+
+    pub fn from_ext_comm(comm: &ExtComm) -> Option<Self> {
+        match (comm.0[0], comm.0[1]) {
+            (0x00 | 0x40, 0x02) => Some(RouteTarget::As2Administrator {
+                asn: u16::from_be_bytes(comm.0[2..4].try_into().unwrap()),
+                number: u32::from_be_bytes(comm.0[4..8].try_into().unwrap()),
+            }),
+            (0x01 | 0x41, 0x02) => Some(RouteTarget::Ipv4Administrator {
+                addr: Ipv4Addr::from(u32::from_be_bytes(
+                    comm.0[2..6].try_into().unwrap(),
+                )),
+                number: u16::from_be_bytes(comm.0[6..8].try_into().unwrap()),
+            }),
+            (0x02 | 0x42, 0x02) => Some(RouteTarget::As4Administrator {
+                asn: u32::from_be_bytes(comm.0[2..6].try_into().unwrap()),
+                number: u16::from_be_bytes(comm.0[6..8].try_into().unwrap()),
+            }),
+            _ => None,
+        }
+    }
+}
+
+impl ToYang for RouteTarget {
+    fn to_yang(&self) -> Cow<'static, str> {
+        match self {
+            RouteTarget::As2Administrator { asn, number } => {
+                format!("target:{asn}:{number}").into()
+            }
+            RouteTarget::Ipv4Administrator { addr, number } => {
+                format!("target:{addr}:{number}").into()
+            }
+            RouteTarget::As4Administrator { asn, number } => {
+                format!("target:{asn}:{number}").into()
+            }
+        }
     }
 }
 

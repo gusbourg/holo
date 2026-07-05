@@ -688,21 +688,18 @@ impl Neighbor {
         .into();
 
         // Multiprotocol capabilities.
-        if let Some(afi_safi) = self.config.afi_safi.get(&AfiSafi::Ipv4Unicast)
-            && afi_safi.enabled
-        {
-            capabilities.insert(Capability::MultiProtocol {
-                afi: Afi::Ipv4,
-                safi: Safi::Unicast,
-            });
-        }
-        if let Some(afi_safi) = self.config.afi_safi.get(&AfiSafi::Ipv6Unicast)
-            && afi_safi.enabled
-        {
-            capabilities.insert(Capability::MultiProtocol {
-                afi: Afi::Ipv6,
-                safi: Safi::Unicast,
-            });
+        let afi_safis = [
+            (AfiSafi::Ipv4Unicast, Afi::Ipv4, Safi::Unicast),
+            (AfiSafi::Ipv6Unicast, Afi::Ipv6, Safi::Unicast),
+            (AfiSafi::L3vpnIpv4Unicast, Afi::Ipv4, Safi::LabeledVpn),
+            (AfiSafi::L3vpnIpv6Unicast, Afi::Ipv6, Safi::LabeledVpn),
+        ];
+        for (afi_safi, afi, safi) in afi_safis {
+            if let Some(afi_safi) = self.config.afi_safi.get(&afi_safi)
+                && afi_safi.enabled
+            {
+                capabilities.insert(Capability::MultiProtocol { afi, safi });
+            }
         }
 
         // Keep track of the advertised capabilities.

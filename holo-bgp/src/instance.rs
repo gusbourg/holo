@@ -590,6 +590,8 @@ fn process_protocol_msg(
                         instance, neighbors, nbr_addr, routes,
                     )?
                 }
+                (_, AfiSafi::L3vpnIpv4Unicast)
+                | (_, AfiSafi::L3vpnIpv6Unicast) => {}
             },
             PolicyResultMsg::Redistribute {
                 afi_safi,
@@ -606,6 +608,7 @@ fn process_protocol_msg(
                         instance, prefix, result,
                     )?
                 }
+                AfiSafi::L3vpnIpv4Unicast | AfiSafi::L3vpnIpv6Unicast => {}
             },
         },
         // Decision process.

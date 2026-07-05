@@ -221,6 +221,10 @@ fn process_nbr_update(
                         &instance.state.policy_apply_tasks,
                     );
                 }
+                MpReachNlri::L3vpnIpv4Unicast { .. }
+                | MpReachNlri::L3vpnIpv6Unicast { .. } => {
+                    // VPN RIB import is added in the next Phase B/C steps.
+                }
             }
         } else {
             // Treat as withdraw.
@@ -234,6 +238,10 @@ fn process_nbr_update(
                     process_nbr_unreach_prefixes::<Ipv6Unicast>(
                         nbr, rib, prefixes, ibus_tx,
                     );
+                }
+                MpReachNlri::L3vpnIpv4Unicast { .. }
+                | MpReachNlri::L3vpnIpv6Unicast { .. } => {
+                    // VPN RIB import is added in the next Phase B/C steps.
                 }
             }
         }
@@ -261,6 +269,10 @@ fn process_nbr_update(
                 process_nbr_unreach_prefixes::<Ipv6Unicast>(
                     nbr, rib, prefixes, ibus_tx,
                 );
+            }
+            MpUnreachNlri::L3vpnIpv4Unicast { .. }
+            | MpUnreachNlri::L3vpnIpv6Unicast { .. } => {
+                // VPN RIB import is added in the next Phase B/C steps.
             }
         }
     }

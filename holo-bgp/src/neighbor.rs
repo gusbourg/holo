@@ -13,9 +13,7 @@ use std::time::Duration;
 use arbitrary::Arbitrary;
 use chrono::{DateTime, Utc};
 use holo_protocol::InstanceChannelsTx;
-use holo_utils::bgp::{
-    AfiSafi, RouteDistinguisher, RouteTarget, RouteType, WellKnownCommunities,
-};
+use holo_utils::bgp::{AfiSafi, RouteType, WellKnownCommunities};
 use holo_utils::ibus::IbusChannelsTx;
 use holo_utils::socket::{TTL_MAX, TcpConnInfo, TcpStream};
 use holo_utils::task::{IntervalTask, Task, TimeoutTask};
@@ -32,14 +30,13 @@ use crate::instance::{Instance, InstanceUpView};
 use crate::northbound::configuration::{InstanceCfg, NeighborCfg};
 use crate::northbound::notification;
 use crate::northbound::rpc::ClearType;
-use crate::packet::attribute::{AS_TRANS, Attrs, CommList};
+use crate::packet::attribute::{AS_TRANS, Attrs};
 use crate::packet::iana::{
-    Afi, CeaseSubcode, ErrorCode, FsmErrorSubcode, Origin, Safi,
+    Afi, CeaseSubcode, ErrorCode, FsmErrorSubcode, Safi,
 };
 use crate::packet::message::{
-    Capability, DecodeCxt, EncodeCxt, KeepaliveMsg, LabeledVpnIpv4Nlri,
-    LabeledVpnIpv6Nlri, Message, MpReachNlri, NegotiatedCapability,
-    NotificationMsg, OpenMsg, RouteRefreshMsg, UpdateMsg,
+    Capability, DecodeCxt, EncodeCxt, KeepaliveMsg, Message,
+    NegotiatedCapability, NotificationMsg, OpenMsg, RouteRefreshMsg,
 };
 use crate::rib::{Rib, Route, RouteOrigin};
 #[cfg(feature = "testing")]
@@ -601,76 +598,6 @@ impl Neighbor {
         // Send initial routing updates.
         self.initial_routing_update::<Ipv4Unicast>(instance);
         self.initial_routing_update::<Ipv6Unicast>(instance);
-        self.initial_vpn_routing_update(instance);
-    }
-
-    // Sends temporary Phase-B VPN routes to prove labeled VPN NLRI exchange.
-    //
-    // Full VRF export/import in Phase C will replace this with real routes
-    // originated from per-VRF RIBs and label allocation.
-    fn initial_vpn_routing_update(&mut self, instance: &InstanceUpView<'_>) {
-        let Some(conn_info) = &self.conn_info else {
-            return;
-        };
-        let IpAddr::V4(nexthop) = conn_info.local_addr else {
-            return;
-        };
-
-        let rd = RouteDistinguisher::As4Administrator {
-            asn: instance.config.asn,
-            number: 1,
-        };
-        let rt = RouteTarget::As4Administrator {
-            asn: instance.config.asn,
-            number: 1,
-        };
-        let attrs = Attrs {
-            base: crate::packet::attribute::BaseAttrs {
-                origin: Origin::Igp,
-                local_pref: Some(rib::DFLT_LOCAL_PREF),
-                ..Default::default()
-            },
-            ext_comm: Some(CommList(BTreeSet::from([rt.to_ext_comm()]))),
-            ..Default::default()
-        };
-
-        let mut msg_list = vec![];
-        if self.is_af_enabled(Afi::Ipv4, Safi::LabeledVpn) {
-            msg_list.push(Message::Update(UpdateMsg {
-                reach: None,
-                unreach: None,
-                mp_reach: Some(MpReachNlri::L3vpnIpv4Unicast {
-                    nexthop,
-                    prefixes: vec![LabeledVpnIpv4Nlri {
-                        label: 1000,
-                        rd,
-                        prefix: "10.255.31.1/32".parse().unwrap(),
-                    }],
-                }),
-                mp_unreach: None,
-                attrs: Some(attrs.clone()),
-            }));
-        }
-        if self.is_af_enabled(Afi::Ipv6, Safi::LabeledVpn) {
-            msg_list.push(Message::Update(UpdateMsg {
-                reach: None,
-                unreach: None,
-                mp_reach: Some(MpReachNlri::L3vpnIpv6Unicast {
-                    nexthop: nexthop.to_ipv6_mapped(),
-                    prefixes: vec![LabeledVpnIpv6Nlri {
-                        label: 1001,
-                        rd,
-                        prefix: "fd00:31::1/128".parse().unwrap(),
-                    }],
-                }),
-                mp_unreach: None,
-                attrs: Some(attrs),
-            }));
-        }
-
-        if !msg_list.is_empty() {
-            self.message_list_send(msg_list);
-        }
     }
 
     // Closes the BGP session, performing necessary cleanup and releasing resources.

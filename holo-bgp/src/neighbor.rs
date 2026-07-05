@@ -23,7 +23,9 @@ use num_traits::{FromPrimitive, ToPrimitive};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 
-use crate::af::{AddressFamily, Ipv4Unicast, Ipv6Unicast};
+use crate::af::{
+    AddressFamily, Ipv4Unicast, Ipv6Unicast, Vpnv4Unicast, Vpnv6Unicast,
+};
 use crate::debug::Debug;
 use crate::error::Error;
 use crate::instance::{Instance, InstanceUpView};
@@ -116,6 +118,8 @@ pub struct NeighborTasks {
 pub struct NeighborUpdateQueues {
     pub ipv4_unicast: NeighborUpdateQueue<Ipv4Unicast>,
     pub ipv6_unicast: NeighborUpdateQueue<Ipv6Unicast>,
+    pub vpnv4_unicast: NeighborUpdateQueue<Vpnv4Unicast>,
+    pub vpnv6_unicast: NeighborUpdateQueue<Vpnv6Unicast>,
 }
 
 // Neighbor Tx update queue.
@@ -695,6 +699,8 @@ impl Neighbor {
         self.capabilities_nego.clear();
         self.clear_routes::<Ipv4Unicast>(rib, &instance_tx.ibus);
         self.clear_routes::<Ipv6Unicast>(rib, &instance_tx.ibus);
+        self.clear_routes::<Vpnv4Unicast>(rib, &instance_tx.ibus);
+        self.clear_routes::<Vpnv6Unicast>(rib, &instance_tx.ibus);
         self.tasks = Default::default();
         self.msg_txp = None;
 
@@ -1238,6 +1244,8 @@ impl NeighborUpdateQueues {
         [
             self.ipv4_unicast.build_updates(),
             self.ipv6_unicast.build_updates(),
+            self.vpnv4_unicast.build_updates(),
+            self.vpnv6_unicast.build_updates(),
         ]
         .concat()
     }

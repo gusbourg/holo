@@ -67,7 +67,12 @@ impl<'a> YangContainer<'a, Instance> for bgp::global::afi_safis::afi_safi::stati
         let total_prefixes = match afi_safi {
             AfiSafi::Ipv4Unicast => rib.tables.ipv4_unicast.prefixes.len(),
             AfiSafi::Ipv6Unicast => rib.tables.ipv6_unicast.prefixes.len(),
-            AfiSafi::L3vpnIpv4Unicast | AfiSafi::L3vpnIpv6Unicast => 0,
+            AfiSafi::L3vpnIpv4Unicast => {
+                rib.tables.vpnv4_unicast.prefixes.len()
+            }
+            AfiSafi::L3vpnIpv6Unicast => {
+                rib.tables.vpnv6_unicast.prefixes.len()
+            }
         };
         Some(Self {
             total_paths: None, // TODO
@@ -178,7 +183,8 @@ impl<'a> YangContainer<'a, Instance> for bgp::neighbors::neighbor::afi_safis::af
         let (r, s, i) = match afi_safi {
             AfiSafi::Ipv4Unicast => count_stats(&rib.tables.ipv4_unicast.prefixes, &nbr.remote_addr),
             AfiSafi::Ipv6Unicast => count_stats(&rib.tables.ipv6_unicast.prefixes, &nbr.remote_addr),
-            AfiSafi::L3vpnIpv4Unicast | AfiSafi::L3vpnIpv6Unicast => (0, 0, 0),
+            AfiSafi::L3vpnIpv4Unicast => count_stats(&rib.tables.vpnv4_unicast.prefixes, &nbr.remote_addr),
+            AfiSafi::L3vpnIpv6Unicast => count_stats(&rib.tables.vpnv6_unicast.prefixes, &nbr.remote_addr),
         };
         Some(Self {
             received: Some(r),

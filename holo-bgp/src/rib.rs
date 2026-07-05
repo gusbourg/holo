@@ -15,7 +15,9 @@ use holo_utils::ibus::IbusChannelsTx;
 use holo_utils::protocol::Protocol;
 use serde::{Deserialize, Serialize};
 
-use crate::af::{AddressFamily, Ipv4Unicast, Ipv6Unicast};
+use crate::af::{
+    AddressFamily, Ipv4Unicast, Ipv6Unicast, Vpnv4Unicast, Vpnv6Unicast,
+};
 use crate::debug::Debug;
 use crate::ibus;
 use crate::neighbor::{Neighbor, PeerType};
@@ -43,6 +45,8 @@ pub struct Rib {
 pub struct RoutingTables {
     pub ipv4_unicast: RoutingTable<Ipv4Unicast>,
     pub ipv6_unicast: RoutingTable<Ipv6Unicast>,
+    pub vpnv4_unicast: RoutingTable<Vpnv4Unicast>,
+    pub vpnv6_unicast: RoutingTable<Vpnv6Unicast>,
 }
 
 #[derive(Debug)]

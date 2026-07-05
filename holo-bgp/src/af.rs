@@ -6,7 +6,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use holo_utils::bgp::AfiSafi;
+use holo_utils::bgp::{AfiSafi, RouteDistinguisher};
 use holo_utils::ip::{IpAddrKind, IpNetworkKind, Ipv4AddrExt, Ipv6AddrExt};
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use itertools::Itertools;
@@ -68,6 +68,24 @@ pub struct Ipv4Unicast;
 
 #[derive(Debug)]
 pub struct Ipv6Unicast;
+
+#[derive(Debug)]
+pub struct Vpnv4Unicast;
+
+#[derive(Debug)]
+pub struct Vpnv6Unicast;
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct Vpnv4Prefix {
+    pub rd: RouteDistinguisher,
+    pub prefix: Ipv4Network,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct Vpnv6Prefix {
+    pub rd: RouteDistinguisher,
+    pub prefix: Ipv6Network,
+}
 
 // ===== impl Ipv4Unicast =====
 
@@ -346,5 +364,93 @@ impl AddressFamily for Ipv6Unicast {
         }
 
         msgs
+    }
+}
+
+// ===== impl Vpnv4Unicast =====
+
+impl AddressFamily for Vpnv4Unicast {
+    const AFI: Afi = Afi::Ipv4;
+    const SAFI: Safi = Safi::LabeledVpn;
+    const AFI_SAFI: AfiSafi = AfiSafi::L3vpnIpv4Unicast;
+
+    type IpAddr = Ipv4Addr;
+    type IpNetwork = Ipv4Network;
+    type Prefix = Vpnv4Prefix;
+
+    fn table(tables: &mut RoutingTables) -> &mut RoutingTable<Self> {
+        &mut tables.vpnv4_unicast
+    }
+
+    fn update_queue(
+        queues: &mut NeighborUpdateQueues,
+    ) -> &mut NeighborUpdateQueue<Self> {
+        &mut queues.vpnv4_unicast
+    }
+
+    fn nexthop_rx_extract(attrs: &BaseAttrs) -> IpAddr {
+        attrs.nexthop.unwrap()
+    }
+
+    fn nexthop_tx_change(nbr: &Neighbor, local: bool, attrs: &mut BaseAttrs) {
+        Ipv4Unicast::nexthop_tx_change(nbr, local, attrs);
+    }
+
+    fn prefix_from_ip_network(_prefix: IpNetwork) -> Option<Self::Prefix> {
+        None
+    }
+
+    fn prefix_to_ip_network(prefix: Self::Prefix) -> IpNetwork {
+        prefix.prefix.into()
+    }
+
+    fn build_updates(_queue: &mut NeighborUpdateQueue<Self>) -> Vec<Message> {
+        // VPN UPDATE generation needs route labels in the normal RIB route
+        // path. Phase C wires this after VRF export/import state exists.
+        vec![]
+    }
+}
+
+// ===== impl Vpnv6Unicast =====
+
+impl AddressFamily for Vpnv6Unicast {
+    const AFI: Afi = Afi::Ipv6;
+    const SAFI: Safi = Safi::LabeledVpn;
+    const AFI_SAFI: AfiSafi = AfiSafi::L3vpnIpv6Unicast;
+
+    type IpAddr = Ipv6Addr;
+    type IpNetwork = Ipv6Network;
+    type Prefix = Vpnv6Prefix;
+
+    fn table(tables: &mut RoutingTables) -> &mut RoutingTable<Self> {
+        &mut tables.vpnv6_unicast
+    }
+
+    fn update_queue(
+        queues: &mut NeighborUpdateQueues,
+    ) -> &mut NeighborUpdateQueue<Self> {
+        &mut queues.vpnv6_unicast
+    }
+
+    fn nexthop_rx_extract(attrs: &BaseAttrs) -> IpAddr {
+        Ipv6Unicast::nexthop_rx_extract(attrs)
+    }
+
+    fn nexthop_tx_change(nbr: &Neighbor, local: bool, attrs: &mut BaseAttrs) {
+        Ipv6Unicast::nexthop_tx_change(nbr, local, attrs);
+    }
+
+    fn prefix_from_ip_network(_prefix: IpNetwork) -> Option<Self::Prefix> {
+        None
+    }
+
+    fn prefix_to_ip_network(prefix: Self::Prefix) -> IpNetwork {
+        prefix.prefix.into()
+    }
+
+    fn build_updates(_queue: &mut NeighborUpdateQueue<Self>) -> Vec<Message> {
+        // VPN UPDATE generation needs route labels in the normal RIB route
+        // path. Phase C wires this after VRF export/import state exists.
+        vec![]
     }
 }

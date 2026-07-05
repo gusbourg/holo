@@ -16,7 +16,10 @@ use holo_utils::socket::{TcpConnInfo, TcpStream};
 use ipnetwork::IpNetwork;
 use num_traits::FromPrimitive;
 
-use crate::af::{AddressFamily, Ipv4Unicast, Ipv6Unicast};
+use crate::af::{
+    AddressFamily, Ipv4Unicast, Ipv6Unicast, Vpnv4Prefix, Vpnv4Unicast,
+    Vpnv6Prefix, Vpnv6Unicast,
+};
 use crate::debug::Debug;
 use crate::error::{Error, IoError, NbrRxError};
 use crate::instance::{InstanceUpView, PolicyApplyTasks};
@@ -221,9 +224,31 @@ fn process_nbr_update(
                         &instance.state.policy_apply_tasks,
                     );
                 }
-                MpReachNlri::L3vpnIpv4Unicast { .. }
-                | MpReachNlri::L3vpnIpv6Unicast { .. } => {
-                    // VPN RIB import is added in the next Phase B/C steps.
+                MpReachNlri::L3vpnIpv4Unicast { prefixes, nexthop } => {
+                    attrs.base.nexthop = Some(nexthop.into());
+                    let prefixes = prefixes
+                        .into_iter()
+                        .map(|nlri| Vpnv4Prefix {
+                            rd: nlri.rd,
+                            prefix: nlri.prefix,
+                        })
+                        .collect();
+                    process_nbr_reach_prefixes_pre_policy::<Vpnv4Unicast>(
+                        nbr, rib, prefixes, attrs,
+                    );
+                }
+                MpReachNlri::L3vpnIpv6Unicast { prefixes, nexthop } => {
+                    attrs.base.nexthop = Some(nexthop.into());
+                    let prefixes = prefixes
+                        .into_iter()
+                        .map(|nlri| Vpnv6Prefix {
+                            rd: nlri.rd,
+                            prefix: nlri.prefix,
+                        })
+                        .collect();
+                    process_nbr_reach_prefixes_pre_policy::<Vpnv6Unicast>(
+                        nbr, rib, prefixes, attrs,
+                    );
                 }
             }
         } else {
@@ -239,9 +264,29 @@ fn process_nbr_update(
                         nbr, rib, prefixes, ibus_tx,
                     );
                 }
-                MpReachNlri::L3vpnIpv4Unicast { .. }
-                | MpReachNlri::L3vpnIpv6Unicast { .. } => {
-                    // VPN RIB import is added in the next Phase B/C steps.
+                MpReachNlri::L3vpnIpv4Unicast { prefixes, .. } => {
+                    let prefixes = prefixes
+                        .into_iter()
+                        .map(|nlri| Vpnv4Prefix {
+                            rd: nlri.rd,
+                            prefix: nlri.prefix,
+                        })
+                        .collect();
+                    process_nbr_unreach_prefixes::<Vpnv4Unicast>(
+                        nbr, rib, prefixes, ibus_tx,
+                    );
+                }
+                MpReachNlri::L3vpnIpv6Unicast { prefixes, .. } => {
+                    let prefixes = prefixes
+                        .into_iter()
+                        .map(|nlri| Vpnv6Prefix {
+                            rd: nlri.rd,
+                            prefix: nlri.prefix,
+                        })
+                        .collect();
+                    process_nbr_unreach_prefixes::<Vpnv6Unicast>(
+                        nbr, rib, prefixes, ibus_tx,
+                    );
                 }
             }
         }
@@ -270,9 +315,29 @@ fn process_nbr_update(
                     nbr, rib, prefixes, ibus_tx,
                 );
             }
-            MpUnreachNlri::L3vpnIpv4Unicast { .. }
-            | MpUnreachNlri::L3vpnIpv6Unicast { .. } => {
-                // VPN RIB import is added in the next Phase B/C steps.
+            MpUnreachNlri::L3vpnIpv4Unicast { prefixes } => {
+                let prefixes = prefixes
+                    .into_iter()
+                    .map(|nlri| Vpnv4Prefix {
+                        rd: nlri.rd,
+                        prefix: nlri.prefix,
+                    })
+                    .collect();
+                process_nbr_unreach_prefixes::<Vpnv4Unicast>(
+                    nbr, rib, prefixes, ibus_tx,
+                );
+            }
+            MpUnreachNlri::L3vpnIpv6Unicast { prefixes } => {
+                let prefixes = prefixes
+                    .into_iter()
+                    .map(|nlri| Vpnv6Prefix {
+                        rd: nlri.rd,
+                        prefix: nlri.prefix,
+                    })
+                    .collect();
+                process_nbr_unreach_prefixes::<Vpnv6Unicast>(
+                    nbr, rib, prefixes, ibus_tx,
+                );
             }
         }
     }
@@ -352,6 +417,45 @@ fn process_nbr_reach_prefixes<A>(
         default_policy: apply_policy_cfg.default_import_policy,
     };
     policy_apply_tasks.enqueue(msg);
+}
+
+fn process_nbr_reach_prefixes_pre_policy<A>(
+    nbr: &Neighbor,
+    rib: &mut Rib,
+    nlri_prefixes: Vec<A::Prefix>,
+    attrs: Attrs,
+) where
+    A: AddressFamily,
+{
+    // Check if the address-family is enabled for this session.
+    if !nbr.is_af_enabled(A::AFI, A::SAFI) {
+        return;
+    }
+
+    // Initialize route origin and type.
+    let origin = RouteOrigin::Neighbor {
+        identifier: nbr.identifier.unwrap(),
+        remote_addr: nbr.remote_addr,
+    };
+    let route_type = match nbr.peer_type {
+        PeerType::Internal => RouteType::Internal,
+        PeerType::External => RouteType::External,
+    };
+
+    // Keep VPN routes in Adj-RIB-In until the import policy path can carry
+    // RD-qualified keys instead of plain IP networks.
+    let table = A::table(&mut rib.tables);
+    let route_attrs = rib.attr_sets.get_route_attr_sets(&attrs);
+    for prefix in nlri_prefixes {
+        let dest = table.prefixes.entry(prefix).or_default();
+        let adj_rib = dest.adj_rib.entry(nbr.remote_addr).or_default();
+        let route = Route::new(origin, route_attrs.clone(), route_type);
+        adj_rib.update_in_pre(Box::new(route), &mut rib.attr_sets);
+
+        // Enqueue the prefix so later decision-process wiring sees all VPN
+        // changes that arrived before full import/export support.
+        table.queued_prefixes.insert(prefix);
+    }
 }
 
 fn process_nbr_unreach_prefixes<A>(

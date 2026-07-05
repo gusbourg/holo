@@ -1511,6 +1511,7 @@ mod tests {
             "blue".to_owned(),
             10,
             InterfaceFlags::OPERATIVE,
+            None,
             Some(1001),
         );
 

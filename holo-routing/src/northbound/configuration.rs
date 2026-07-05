@@ -18,7 +18,10 @@ use holo_utils::ibus::IbusMsg;
 use holo_utils::ip::{AddressFamily, IpNetworkKind, JointPrefixMapExt};
 use holo_utils::mpls::{Label, LabelRange};
 use holo_utils::protocol::Protocol;
-use holo_utils::southbound::{Nexthop, RouteKeyMsg, RouteKind, RouteMsg, RouteOpaqueAttrs};
+use holo_utils::southbound::{
+    LabelInstallMsg, LabelUninstallMsg, Nexthop, RouteKeyMsg, RouteKind,
+    RouteMsg, RouteOpaqueAttrs,
+};
 use holo_utils::sr::{IgpAlgoType, SidLastHopBehavior, SrCfgEvent, SrCfgPrefixSid};
 use holo_utils::yang::DataNodeRefExt;
 use holo_yang::TryFromYang;
@@ -84,6 +87,7 @@ pub struct NetworkInstance {
     pub import_rts: BTreeSet<RouteTarget>,
     pub export_rts: BTreeSet<RouteTarget>,
     pub export_label: Option<Label>,
+    pub export_label_installed: Option<(Label, u32)>,
     // Kernel VRF table id, resolved from the learned VRF device of the same
     // name (None until the VRF device is learned). Consumed by per-VRF
     // routing.
@@ -248,6 +252,7 @@ fn load_callbacks() -> Callbacks<Master> {
         })
         .delete_apply(|master, args| {
             let name = args.list_entry.into_network_instance().unwrap();
+            vpn_export_label_uninstall(master, &name);
             master.network_instances.remove(&name);
             vpn_imports_update(master);
         })
@@ -1612,7 +1617,16 @@ fn static_route_table_id(master: &Master, route_key: &StaticRouteKey) -> Option<
     Some(Some(table_id))
 }
 
-pub(crate) fn vpn_imports_update(master: &Master) {
+pub(crate) fn vpn_imports_update(master: &mut Master) {
+    let names = master
+        .network_instances
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>();
+    for name in names {
+        vpn_export_label_update(master, &name);
+    }
+
     let imports = master
         .network_instances
         .iter()
@@ -1662,6 +1676,69 @@ fn vpn_export_label_ensure(master: &mut Master, name: &str) {
     };
     let ni = master.network_instances.get_mut(name).unwrap();
     ni.export_label = Some(label);
+}
+
+fn vpn_export_label_update(master: &mut Master, name: &str) {
+    let desired = master.network_instances.get(name).and_then(|ni| {
+        if !ni.enabled
+            || ni.rd.is_none()
+            || ni.export_rts.is_empty()
+            || ni.table_id.is_none()
+        {
+            return None;
+        }
+        let label = ni.export_label?;
+        let ifindex = master.interfaces.get_by_name(name)?.ifindex;
+        Some((label, ifindex))
+    });
+    let installed = master
+        .network_instances
+        .get(name)
+        .and_then(|ni| ni.export_label_installed);
+
+    if let Some((label, _)) = installed
+        && installed != desired
+    {
+        master.ibus_tx.route_mpls_del(LabelUninstallMsg {
+            protocol: Protocol::BGP,
+            label,
+            nexthops: Default::default(),
+            route: None,
+        });
+        let ni = master.network_instances.get_mut(name).unwrap();
+        ni.export_label_installed = None;
+    }
+
+    if let Some((label, ifindex)) = desired
+        && installed != Some((label, ifindex))
+    {
+        master.ibus_tx.route_mpls_add(LabelInstallMsg {
+            protocol: Protocol::BGP,
+            label,
+            nexthops: BTreeSet::from([Nexthop::Interface { ifindex }]),
+            route: None,
+            replace: true,
+        });
+        let ni = master.network_instances.get_mut(name).unwrap();
+        ni.export_label_installed = Some((label, ifindex));
+    }
+}
+
+fn vpn_export_label_uninstall(master: &mut Master, name: &str) {
+    let Some((label, _)) = master
+        .network_instances
+        .get_mut(name)
+        .and_then(|ni| ni.export_label_installed.take())
+    else {
+        return;
+    };
+
+    master.ibus_tx.route_mpls_del(LabelUninstallMsg {
+        protocol: Protocol::BGP,
+        label,
+        nexthops: Default::default(),
+        route: None,
+    });
 }
 
 fn vpn_exports_replay(master: &Master, table_ids: &BTreeSet<u32>) {

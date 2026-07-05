@@ -18,7 +18,8 @@ use holo_utils::protocol::Protocol;
 use serde::{Deserialize, Serialize};
 
 use crate::af::{
-    AddressFamily, Ipv4Unicast, Ipv6Unicast, Vpnv4Unicast, Vpnv6Unicast,
+    AddressFamily, Ipv4Unicast, Ipv6Unicast, L2vpnEvpn, Vpnv4Unicast,
+    Vpnv6Unicast,
 };
 use crate::debug::Debug;
 use crate::ibus;
@@ -49,6 +50,7 @@ pub struct RoutingTables {
     pub ipv6_unicast: RoutingTable<Ipv6Unicast>,
     pub vpnv4_unicast: RoutingTable<Vpnv4Unicast>,
     pub vpnv6_unicast: RoutingTable<Vpnv6Unicast>,
+    pub l2vpn_evpn: RoutingTable<L2vpnEvpn>,
 }
 
 #[derive(Debug)]

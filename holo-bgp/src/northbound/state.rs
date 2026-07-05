@@ -24,11 +24,12 @@ use crate::packet::iana::{Afi, Safi};
 use crate::packet::message::{AddPathTuple, Capability};
 use crate::rib::{AttrSet, Destination, LocalRoute, Route};
 
-pub static AFI_SAFIS: [AfiSafi; 4] = [
+pub static AFI_SAFIS: [AfiSafi; 5] = [
     AfiSafi::Ipv4Unicast,
     AfiSafi::Ipv6Unicast,
     AfiSafi::L3vpnIpv4Unicast,
     AfiSafi::L3vpnIpv6Unicast,
+    AfiSafi::L2vpnEvpn,
 ];
 
 impl Provider for Instance {
@@ -73,6 +74,7 @@ impl<'a> YangContainer<'a, Instance> for bgp::global::afi_safis::afi_safi::stati
             AfiSafi::L3vpnIpv6Unicast => {
                 rib.tables.vpnv6_unicast.prefixes.len()
             }
+            AfiSafi::L2vpnEvpn => rib.tables.l2vpn_evpn.prefixes.len(),
         };
         Some(Self {
             total_paths: None, // TODO
@@ -185,6 +187,7 @@ impl<'a> YangContainer<'a, Instance> for bgp::neighbors::neighbor::afi_safis::af
             AfiSafi::Ipv6Unicast => count_stats(&rib.tables.ipv6_unicast.prefixes, &nbr.remote_addr),
             AfiSafi::L3vpnIpv4Unicast => count_stats(&rib.tables.vpnv4_unicast.prefixes, &nbr.remote_addr),
             AfiSafi::L3vpnIpv6Unicast => count_stats(&rib.tables.vpnv6_unicast.prefixes, &nbr.remote_addr),
+            AfiSafi::L2vpnEvpn => count_stats(&rib.tables.l2vpn_evpn.prefixes, &nbr.remote_addr),
         };
         Some(Self {
             received: Some(r),
@@ -1133,6 +1136,7 @@ fn afi_safi_tuple(afi: Afi, safi: Safi) -> Option<AfiSafi> {
         (Afi::Ipv6, Safi::Unicast) => Some(AfiSafi::Ipv6Unicast),
         (Afi::Ipv4, Safi::LabeledVpn) => Some(AfiSafi::L3vpnIpv4Unicast),
         (Afi::Ipv6, Safi::LabeledVpn) => Some(AfiSafi::L3vpnIpv6Unicast),
+        (Afi::L2vpn, Safi::Evpn) => Some(AfiSafi::L2vpnEvpn),
         _ => None,
     }
 }

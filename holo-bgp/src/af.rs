@@ -21,7 +21,7 @@ use crate::neighbor::{
 use crate::packet::attribute::{self, ATTR_MIN_LEN_EXT, BaseAttrs};
 use crate::packet::iana::{Afi, Safi};
 use crate::packet::message::{
-    LabeledVpnIpv4Nlri, LabeledVpnIpv6Nlri, Message, MpReachNlri,
+    EvpnRoute, LabeledVpnIpv4Nlri, LabeledVpnIpv6Nlri, Message, MpReachNlri,
     MpUnreachNlri, ReachNlri, UnreachNlri, UpdateMsg,
 };
 use crate::rib::{LocalRoute, RoutingTable, RoutingTables};
@@ -105,6 +105,9 @@ pub struct Vpnv4Unicast;
 #[derive(Debug)]
 pub struct Vpnv6Unicast;
 
+#[derive(Debug)]
+pub struct L2vpnEvpn;
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Vpnv4Prefix {
     pub rd: RouteDistinguisher,
@@ -116,6 +119,8 @@ pub struct Vpnv6Prefix {
     pub rd: RouteDistinguisher,
     pub prefix: Ipv6Network,
 }
+
+pub type EvpnPrefix = EvpnRoute;
 
 // ===== impl Ipv4Unicast =====
 
@@ -682,6 +687,107 @@ impl AddressFamily for Vpnv6Unicast {
         ibus_tx: &IbusChannelsTx,
     ) {
         vpn_import_uninstall(prefix.prefix.into(), route, shared, ibus_tx);
+    }
+}
+
+// ===== impl L2vpnEvpn =====
+
+impl AddressFamily for L2vpnEvpn {
+    const AFI: Afi = Afi::L2vpn;
+    const SAFI: Safi = Safi::Evpn;
+    const AFI_SAFI: AfiSafi = AfiSafi::L2vpnEvpn;
+    const INSTALL_LOC_RIB: bool = false;
+    const POLICY_DISSEMINATE: bool = false;
+
+    type IpAddr = Ipv4Addr;
+    type IpNetwork = Ipv4Network;
+    type Prefix = EvpnPrefix;
+
+    fn table(tables: &mut RoutingTables) -> &mut RoutingTable<Self> {
+        &mut tables.l2vpn_evpn
+    }
+
+    fn update_queue(
+        queues: &mut NeighborUpdateQueues,
+    ) -> &mut NeighborUpdateQueue<Self> {
+        &mut queues.l2vpn_evpn
+    }
+
+    fn nexthop_rx_extract(attrs: &BaseAttrs) -> IpAddr {
+        attrs.nexthop.unwrap()
+    }
+
+    fn nexthop_tx_change(nbr: &Neighbor, local: bool, attrs: &mut BaseAttrs) {
+        Ipv4Unicast::nexthop_tx_change(nbr, local, attrs);
+    }
+
+    fn prefix_from_ip_network(_prefix: IpNetwork) -> Option<Self::Prefix> {
+        None
+    }
+
+    fn prefix_to_ip_network(_prefix: Self::Prefix) -> IpNetwork {
+        Ipv4Network::new(Ipv4Addr::UNSPECIFIED, 32).unwrap().into()
+    }
+
+    fn build_updates(queue: &mut NeighborUpdateQueue<Self>) -> Vec<Message> {
+        let mut msgs = vec![];
+        let reach = std::mem::take(&mut queue.reach);
+        let unreach = std::mem::take(&mut queue.unreach);
+
+        for (attrs, routes) in reach.into_iter() {
+            let nexthop = attrs.base.nexthop.unwrap();
+            let max = (Message::MAX_LEN
+                - UpdateMsg::MIN_LEN
+                - attrs.length()
+                - ATTR_MIN_LEN_EXT
+                - MpReachNlri::MIN_LEN)
+                / 64;
+
+            msgs.extend(
+                routes.into_iter().chunks(max as usize).into_iter().map(
+                    |chunk| {
+                        let mp_reach = MpReachNlri::L2vpnEvpn {
+                            routes: chunk.collect(),
+                            nexthop,
+                        };
+                        Message::Update(UpdateMsg {
+                            reach: None,
+                            unreach: None,
+                            mp_reach: Some(mp_reach),
+                            mp_unreach: None,
+                            attrs: Some(attrs.clone()),
+                        })
+                    },
+                ),
+            );
+        }
+
+        if !unreach.is_empty() {
+            let max = (Message::MAX_LEN
+                - UpdateMsg::MIN_LEN
+                - ATTR_MIN_LEN_EXT
+                - MpUnreachNlri::MIN_LEN)
+                / 64;
+
+            msgs.extend(
+                unreach.into_iter().chunks(max as usize).into_iter().map(
+                    |chunk| {
+                        let mp_unreach = MpUnreachNlri::L2vpnEvpn {
+                            routes: chunk.collect(),
+                        };
+                        Message::Update(UpdateMsg {
+                            reach: None,
+                            unreach: None,
+                            mp_reach: None,
+                            mp_unreach: Some(mp_unreach),
+                            attrs: None,
+                        })
+                    },
+                ),
+            );
+        }
+
+        msgs
     }
 }
 

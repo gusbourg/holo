@@ -23,10 +23,10 @@ use crate::packet::error::{AttrError, UpdateMessageError};
 use crate::packet::iana::{Afi, AttrType, Origin, Safi};
 use crate::packet::message::{
     DecodeCxt, EncodeCxt, MpReachNlri, MpUnreachNlri, NegotiatedCapability,
-    ReachNlri, decode_ipv4_prefix, decode_ipv6_prefix,
+    ReachNlri, decode_evpn_route, decode_ipv4_prefix, decode_ipv6_prefix,
     decode_labeled_vpn_ipv4_prefix, decode_labeled_vpn_ipv6_prefix,
-    encode_ipv4_prefix, encode_ipv6_prefix, encode_labeled_vpn_ipv4_prefix,
-    encode_labeled_vpn_ipv6_prefix,
+    encode_evpn_route, encode_ipv4_prefix, encode_ipv6_prefix,
+    encode_labeled_vpn_ipv4_prefix, encode_labeled_vpn_ipv6_prefix,
 };
 
 pub const ATTR_MIN_LEN: u16 = 3;
@@ -1169,6 +1169,24 @@ impl MpReachNlri {
                     encode_labeled_vpn_ipv6_prefix(buf, prefix);
                 }
             }
+            MpReachNlri::L2vpnEvpn { routes, nexthop } => {
+                buf.put_u16(Afi::L2vpn as u16);
+                buf.put_u8(Safi::Evpn as u8);
+                match nexthop {
+                    IpAddr::V4(addr) => {
+                        buf.put_u8(Ipv4Addr::LENGTH as u8);
+                        buf.put_ipv4(addr);
+                    }
+                    IpAddr::V6(addr) => {
+                        buf.put_u8(Ipv6Addr::LENGTH as u8);
+                        buf.put_ipv6(addr);
+                    }
+                }
+                buf.put_u8(0);
+                for route in routes {
+                    encode_evpn_route(buf, route);
+                }
+            }
         }
 
         // Rewrite attribute length.
@@ -1317,6 +1335,33 @@ impl MpReachNlri {
                 *mp_reach =
                     Some(MpReachNlri::L3vpnIpv6Unicast { prefixes, nexthop });
             }
+            (Afi::L2vpn, Safi::Evpn) => {
+                let mut routes = Vec::new();
+
+                let nexthop_len = buf.try_get_u8()? as usize;
+                if (nexthop_len != Ipv4Addr::LENGTH
+                    && nexthop_len != Ipv6Addr::LENGTH)
+                    || nexthop_len > buf.remaining()
+                {
+                    return Err(AttrError::Reset);
+                }
+                let nexthop = match nexthop_len {
+                    Ipv4Addr::LENGTH => IpAddr::V4(buf.try_get_ipv4()?),
+                    Ipv6Addr::LENGTH => IpAddr::V6(buf.try_get_ipv6()?),
+                    _ => unreachable!(),
+                };
+
+                let _reserved = buf.try_get_u8()?;
+                while buf.remaining() > 0 {
+                    if let Some(route) =
+                        decode_evpn_route(buf).map_err(|_| AttrError::Reset)?
+                    {
+                        routes.push(route);
+                    }
+                }
+
+                *mp_reach = Some(MpReachNlri::L2vpnEvpn { routes, nexthop });
+            }
             _ => {
                 // Ignore unsupported AFI/SAFI combination.
                 return Err(AttrError::Discard);
@@ -1368,6 +1413,13 @@ impl MpUnreachNlri {
                 buf.put_u8(Safi::LabeledVpn as u8);
                 for prefix in prefixes {
                     encode_labeled_vpn_ipv6_prefix(buf, prefix);
+                }
+            }
+            MpUnreachNlri::L2vpnEvpn { routes } => {
+                buf.put_u16(Afi::L2vpn as u16);
+                buf.put_u8(Safi::Evpn as u8);
+                for route in routes {
+                    encode_evpn_route(buf, route);
                 }
             }
         }
@@ -1454,6 +1506,19 @@ impl MpUnreachNlri {
 
                 *mp_unreach =
                     Some(MpUnreachNlri::L3vpnIpv6Unicast { prefixes });
+            }
+            (Afi::L2vpn, Safi::Evpn) => {
+                let mut routes = Vec::new();
+
+                while buf.remaining() > 0 {
+                    if let Some(route) =
+                        decode_evpn_route(buf).map_err(|_| AttrError::Reset)?
+                    {
+                        routes.push(route);
+                    }
+                }
+
+                *mp_unreach = Some(MpUnreachNlri::L2vpnEvpn { routes });
             }
             _ => {
                 // Ignore unsupported AFI/SAFI combination.

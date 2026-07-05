@@ -23,7 +23,8 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 
 use crate::af::{
-    AddressFamily, Ipv4Unicast, Ipv6Unicast, Vpnv4Unicast, Vpnv6Unicast,
+    AddressFamily, Ipv4Unicast, Ipv6Unicast, L2vpnEvpn, Vpnv4Unicast,
+    Vpnv6Unicast,
 };
 use crate::debug::Debug;
 use crate::error::Error;
@@ -118,6 +119,7 @@ pub struct NeighborUpdateQueues {
     pub ipv6_unicast: NeighborUpdateQueue<Ipv6Unicast>,
     pub vpnv4_unicast: NeighborUpdateQueue<Vpnv4Unicast>,
     pub vpnv6_unicast: NeighborUpdateQueue<Vpnv6Unicast>,
+    pub l2vpn_evpn: NeighborUpdateQueue<L2vpnEvpn>,
 }
 
 // Neighbor Tx update queue.
@@ -703,6 +705,7 @@ impl Neighbor {
             (AfiSafi::Ipv6Unicast, Afi::Ipv6, Safi::Unicast),
             (AfiSafi::L3vpnIpv4Unicast, Afi::Ipv4, Safi::LabeledVpn),
             (AfiSafi::L3vpnIpv6Unicast, Afi::Ipv6, Safi::LabeledVpn),
+            (AfiSafi::L2vpnEvpn, Afi::L2vpn, Safi::Evpn),
         ];
         for (afi_safi, afi, safi) in afi_safis {
             if let Some(afi_safi) = self.config.afi_safi.get(&afi_safi)

@@ -18,8 +18,8 @@ use ipnetwork::IpNetwork;
 use num_traits::FromPrimitive;
 
 use crate::af::{
-    AddressFamily, Ipv4Unicast, Ipv6Unicast, Vpnv4Prefix, Vpnv4Unicast,
-    Vpnv6Prefix, Vpnv6Unicast,
+    AddressFamily, Ipv4Unicast, Ipv6Unicast, L2vpnEvpn, Vpnv4Prefix,
+    Vpnv4Unicast, Vpnv6Prefix, Vpnv6Unicast,
 };
 use crate::debug::Debug;
 use crate::error::{Error, IoError, NbrRxError};
@@ -261,6 +261,16 @@ fn process_nbr_update(
                         nbr, rib, prefixes, attrs, ibus_tx,
                     );
                 }
+                MpReachNlri::L2vpnEvpn { routes, nexthop } => {
+                    attrs.base.nexthop = Some(nexthop);
+                    let routes = routes
+                        .into_iter()
+                        .map(|route| (route, Label::new(0)))
+                        .collect();
+                    process_nbr_reach_prefixes_pre_policy::<L2vpnEvpn>(
+                        nbr, rib, routes, attrs, ibus_tx,
+                    );
+                }
             }
         } else {
             // Treat as withdraw.
@@ -297,6 +307,11 @@ fn process_nbr_update(
                         .collect();
                     process_nbr_unreach_prefixes::<Vpnv6Unicast>(
                         nbr, rib, prefixes, ibus_tx,
+                    );
+                }
+                MpReachNlri::L2vpnEvpn { routes, .. } => {
+                    process_nbr_unreach_prefixes::<L2vpnEvpn>(
+                        nbr, rib, routes, ibus_tx,
                     );
                 }
             }
@@ -348,6 +363,11 @@ fn process_nbr_update(
                     .collect();
                 process_nbr_unreach_prefixes::<Vpnv6Unicast>(
                     nbr, rib, prefixes, ibus_tx,
+                );
+            }
+            MpUnreachNlri::L2vpnEvpn { routes } => {
+                process_nbr_unreach_prefixes::<L2vpnEvpn>(
+                    nbr, rib, routes, ibus_tx,
                 );
             }
         }

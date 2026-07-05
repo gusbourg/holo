@@ -27,3 +27,8 @@ async fn topology2_1() {
 async fn l3vpn_1() {
     run_test_topology::<Instance>("l3vpn-1", "rt1").await;
 }
+
+#[tokio::test]
+async fn evpn_1() {
+    run_test_topology::<Instance>("evpn-1", "rt1").await;
+}

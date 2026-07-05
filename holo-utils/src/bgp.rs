@@ -30,6 +30,7 @@ pub enum AfiSafi {
     Ipv6Unicast,
     L3vpnIpv4Unicast,
     L3vpnIpv6Unicast,
+    L2vpnEvpn,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -108,6 +109,7 @@ impl ToYang for AfiSafi {
             AfiSafi::L3vpnIpv6Unicast => {
                 "iana-bgp-types:l3vpn-ipv6-unicast".into()
             }
+            AfiSafi::L2vpnEvpn => "iana-bgp-types:l2vpn-evpn".into(),
         }
     }
 }
@@ -123,6 +125,7 @@ impl TryFromYang for AfiSafi {
             "iana-bgp-types:l3vpn-ipv6-unicast" => {
                 Some(AfiSafi::L3vpnIpv6Unicast)
             }
+            "iana-bgp-types:l2vpn-evpn" => Some(AfiSafi::L2vpnEvpn),
             _ => None,
         }
     }

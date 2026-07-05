@@ -20,7 +20,9 @@ use holo_utils::task::{Task, TimeoutTask};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender};
 
-use crate::af::{Ipv4Unicast, Ipv6Unicast, Vpnv4Unicast, Vpnv6Unicast};
+use crate::af::{
+    Ipv4Unicast, Ipv6Unicast, L2vpnEvpn, Vpnv4Unicast, Vpnv6Unicast,
+};
 use crate::debug::{Debug, InstanceInactiveReason};
 use crate::error::{Error, IoError};
 use crate::neighbor::{Neighbors, fsm};
@@ -591,7 +593,8 @@ fn process_protocol_msg(
                     )?
                 }
                 (_, AfiSafi::L3vpnIpv4Unicast)
-                | (_, AfiSafi::L3vpnIpv6Unicast) => {}
+                | (_, AfiSafi::L3vpnIpv6Unicast)
+                | (_, AfiSafi::L2vpnEvpn) => {}
             },
             PolicyResultMsg::Redistribute {
                 afi_safi,
@@ -608,7 +611,9 @@ fn process_protocol_msg(
                         instance, prefix, result,
                     )?
                 }
-                AfiSafi::L3vpnIpv4Unicast | AfiSafi::L3vpnIpv6Unicast => {}
+                AfiSafi::L3vpnIpv4Unicast
+                | AfiSafi::L3vpnIpv6Unicast
+                | AfiSafi::L2vpnEvpn => {}
             },
         },
         // Decision process.
@@ -617,6 +622,7 @@ fn process_protocol_msg(
             events::decision_process::<Ipv6Unicast>(instance, neighbors)?;
             events::decision_process::<Vpnv4Unicast>(instance, neighbors)?;
             events::decision_process::<Vpnv6Unicast>(instance, neighbors)?;
+            events::decision_process::<L2vpnEvpn>(instance, neighbors)?;
         }
     }
 

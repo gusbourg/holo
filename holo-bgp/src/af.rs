@@ -21,7 +21,8 @@ use crate::neighbor::{
 use crate::packet::attribute::{self, ATTR_MIN_LEN_EXT, BaseAttrs};
 use crate::packet::iana::{Afi, Safi};
 use crate::packet::message::{
-    Message, MpReachNlri, MpUnreachNlri, ReachNlri, UnreachNlri, UpdateMsg,
+    LabeledVpnIpv4Nlri, LabeledVpnIpv6Nlri, Message, MpReachNlri,
+    MpUnreachNlri, ReachNlri, UnreachNlri, UpdateMsg,
 };
 use crate::rib::{LocalRoute, RoutingTable, RoutingTables};
 
@@ -47,6 +48,7 @@ pub trait AddressFamily: Sized {
     // Whether selected Loc-RIB routes should be advertised to neighbors by
     // the generic policy path.
     const DISSEMINATE: bool = true;
+    const POLICY_DISSEMINATE: bool = true;
 
     // Get the routing table for this address family from the provided
     // `RoutingTables`.
@@ -402,7 +404,7 @@ impl AddressFamily for Vpnv4Unicast {
     const SAFI: Safi = Safi::LabeledVpn;
     const AFI_SAFI: AfiSafi = AfiSafi::L3vpnIpv4Unicast;
     const INSTALL_LOC_RIB: bool = false;
-    const DISSEMINATE: bool = false;
+    const POLICY_DISSEMINATE: bool = false;
 
     type IpAddr = Ipv4Addr;
     type IpNetwork = Ipv4Network;
@@ -434,10 +436,83 @@ impl AddressFamily for Vpnv4Unicast {
         prefix.prefix.into()
     }
 
-    fn build_updates(_queue: &mut NeighborUpdateQueue<Self>) -> Vec<Message> {
-        // VPN UPDATE generation needs route labels in the normal RIB route
-        // path. Phase C wires this after VRF export/import state exists.
-        vec![]
+    fn build_updates(queue: &mut NeighborUpdateQueue<Self>) -> Vec<Message> {
+        let mut msgs = vec![];
+        let reach = std::mem::take(&mut queue.reach);
+        let unreach = std::mem::take(&mut queue.unreach);
+        let labels = std::mem::take(&mut queue.labels);
+
+        for (attrs, prefixes) in reach.into_iter() {
+            let nexthop = Ipv4Addr::get(attrs.base.nexthop.unwrap()).unwrap();
+            let max = (Message::MAX_LEN
+                - UpdateMsg::MIN_LEN
+                - attrs.length()
+                - ATTR_MIN_LEN_EXT
+                - MpReachNlri::MIN_LEN)
+                / (1 + 3 + 8 + Ipv4Addr::LENGTH as u16);
+
+            msgs.extend(
+                prefixes.into_iter().chunks(max as usize).into_iter().map(
+                    |chunk| {
+                        let prefixes = chunk
+                            .map(|prefix| LabeledVpnIpv4Nlri {
+                                label: labels
+                                    .get(&prefix)
+                                    .map(|label| label.get())
+                                    .unwrap_or(0),
+                                rd: prefix.rd,
+                                prefix: prefix.prefix,
+                            })
+                            .collect();
+                        let mp_reach =
+                            MpReachNlri::L3vpnIpv4Unicast { prefixes, nexthop };
+                        Message::Update(UpdateMsg {
+                            reach: None,
+                            unreach: None,
+                            mp_reach: Some(mp_reach),
+                            mp_unreach: None,
+                            attrs: Some(attrs.clone()),
+                        })
+                    },
+                ),
+            );
+        }
+
+        if !unreach.is_empty() {
+            let max = (Message::MAX_LEN
+                - UpdateMsg::MIN_LEN
+                - ATTR_MIN_LEN_EXT
+                - MpUnreachNlri::MIN_LEN)
+                / (1 + 3 + 8 + Ipv4Addr::LENGTH as u16);
+
+            msgs.extend(
+                unreach.into_iter().chunks(max as usize).into_iter().map(
+                    |chunk| {
+                        let prefixes = chunk
+                            .map(|prefix| LabeledVpnIpv4Nlri {
+                                label: labels
+                                    .get(&prefix)
+                                    .map(|label| label.get())
+                                    .unwrap_or(0),
+                                rd: prefix.rd,
+                                prefix: prefix.prefix,
+                            })
+                            .collect();
+                        let mp_unreach =
+                            MpUnreachNlri::L3vpnIpv4Unicast { prefixes };
+                        Message::Update(UpdateMsg {
+                            reach: None,
+                            unreach: None,
+                            mp_reach: None,
+                            mp_unreach: Some(mp_unreach),
+                            attrs: None,
+                        })
+                    },
+                ),
+            );
+        }
+
+        msgs
     }
 
     fn vpn_import_install(
@@ -473,7 +548,7 @@ impl AddressFamily for Vpnv6Unicast {
     const SAFI: Safi = Safi::LabeledVpn;
     const AFI_SAFI: AfiSafi = AfiSafi::L3vpnIpv6Unicast;
     const INSTALL_LOC_RIB: bool = false;
-    const DISSEMINATE: bool = false;
+    const POLICY_DISSEMINATE: bool = false;
 
     type IpAddr = Ipv6Addr;
     type IpNetwork = Ipv6Network;
@@ -505,10 +580,83 @@ impl AddressFamily for Vpnv6Unicast {
         prefix.prefix.into()
     }
 
-    fn build_updates(_queue: &mut NeighborUpdateQueue<Self>) -> Vec<Message> {
-        // VPN UPDATE generation needs route labels in the normal RIB route
-        // path. Phase C wires this after VRF export/import state exists.
-        vec![]
+    fn build_updates(queue: &mut NeighborUpdateQueue<Self>) -> Vec<Message> {
+        let mut msgs = vec![];
+        let reach = std::mem::take(&mut queue.reach);
+        let unreach = std::mem::take(&mut queue.unreach);
+        let labels = std::mem::take(&mut queue.labels);
+
+        for (attrs, prefixes) in reach.into_iter() {
+            let nexthop = Ipv6Addr::get(attrs.base.nexthop.unwrap()).unwrap();
+            let max = (Message::MAX_LEN
+                - UpdateMsg::MIN_LEN
+                - attrs.length()
+                - ATTR_MIN_LEN_EXT
+                - MpReachNlri::MIN_LEN)
+                / (1 + 3 + 8 + Ipv6Addr::LENGTH as u16);
+
+            msgs.extend(
+                prefixes.into_iter().chunks(max as usize).into_iter().map(
+                    |chunk| {
+                        let prefixes = chunk
+                            .map(|prefix| LabeledVpnIpv6Nlri {
+                                label: labels
+                                    .get(&prefix)
+                                    .map(|label| label.get())
+                                    .unwrap_or(0),
+                                rd: prefix.rd,
+                                prefix: prefix.prefix,
+                            })
+                            .collect();
+                        let mp_reach =
+                            MpReachNlri::L3vpnIpv6Unicast { prefixes, nexthop };
+                        Message::Update(UpdateMsg {
+                            reach: None,
+                            unreach: None,
+                            mp_reach: Some(mp_reach),
+                            mp_unreach: None,
+                            attrs: Some(attrs.clone()),
+                        })
+                    },
+                ),
+            );
+        }
+
+        if !unreach.is_empty() {
+            let max = (Message::MAX_LEN
+                - UpdateMsg::MIN_LEN
+                - ATTR_MIN_LEN_EXT
+                - MpUnreachNlri::MIN_LEN)
+                / (1 + 3 + 8 + Ipv6Addr::LENGTH as u16);
+
+            msgs.extend(
+                unreach.into_iter().chunks(max as usize).into_iter().map(
+                    |chunk| {
+                        let prefixes = chunk
+                            .map(|prefix| LabeledVpnIpv6Nlri {
+                                label: labels
+                                    .get(&prefix)
+                                    .map(|label| label.get())
+                                    .unwrap_or(0),
+                                rd: prefix.rd,
+                                prefix: prefix.prefix,
+                            })
+                            .collect();
+                        let mp_unreach =
+                            MpUnreachNlri::L3vpnIpv6Unicast { prefixes };
+                        Message::Update(UpdateMsg {
+                            reach: None,
+                            unreach: None,
+                            mp_reach: None,
+                            mp_unreach: Some(mp_unreach),
+                            attrs: None,
+                        })
+                    },
+                ),
+            );
+        }
+
+        msgs
     }
 
     fn vpn_import_install(

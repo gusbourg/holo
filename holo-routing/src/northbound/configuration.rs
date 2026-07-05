@@ -4,19 +4,19 @@
 // SPDX-License-Identifier: MIT
 //
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::net::IpAddr;
 use std::sync::{Arc, LazyLock as Lazy};
 
 use enum_as_inner::EnumAsInner;
 use holo_northbound::NbDaemonSender;
 use holo_northbound::configuration::{self, CallbackKey, Callbacks, CallbacksBuilder, ConfigChanges, Provider, ValidationCallbacks, ValidationCallbacksBuilder};
-use holo_protocol::VpnImport;
-use holo_utils::bgp::RouteTarget;
+use holo_protocol::{VpnExport, VpnImport};
+use holo_utils::bgp::{RouteDistinguisher, RouteTarget};
 use holo_utils::bier::{BfrId, BierBift, BierBiftCfg, BierCfgEvent, BierEncapsulation, BierEncapsulationType, BierInBiftId, BierOutBiftId, BierSubDomainCfg, BiftNbr, Bsl, SubDomainId, UnderlayProtocolType};
 use holo_utils::ibus::IbusMsg;
-use holo_utils::ip::{AddressFamily, IpNetworkKind};
-use holo_utils::mpls::LabelRange;
+use holo_utils::ip::{AddressFamily, IpNetworkKind, JointPrefixMapExt};
+use holo_utils::mpls::{Label, LabelRange};
 use holo_utils::protocol::Protocol;
 use holo_utils::southbound::{Nexthop, RouteKeyMsg, RouteKind, RouteMsg, RouteOpaqueAttrs};
 use holo_utils::sr::{IgpAlgoType, SidLastHopBehavior, SrCfgEvent, SrCfgPrefixSid};
@@ -25,6 +25,7 @@ use holo_yang::TryFromYang;
 use ipnetwork::IpNetwork;
 use tokio::sync::mpsc;
 use tracing::warn;
+use yang5::data::Data;
 
 use crate::interface::Interfaces;
 use crate::northbound::REGEX_PROTOCOLS;
@@ -32,6 +33,7 @@ use crate::northbound::yang_gen::control_plane_protocol;
 use crate::northbound::yang_gen::network_instances;
 use crate::northbound::yang_gen::routing::segment_routing::sr_mpls;
 use crate::northbound::yang_gen::routing::{bier, ribs};
+use crate::rib::{Route, RouteFlags, RouteKey};
 use crate::{InstanceHandle, InstanceId, Master};
 
 pub static VALIDATION_CALLBACKS: Lazy<ValidationCallbacks> = Lazy::new(load_validation_callbacks);
@@ -78,7 +80,10 @@ pub enum Event {
 pub struct NetworkInstance {
     pub enabled: bool,
     pub description: Option<String>,
+    pub rd: Option<RouteDistinguisher>,
     pub import_rts: BTreeSet<RouteTarget>,
+    pub export_rts: BTreeSet<RouteTarget>,
+    pub export_label: Option<Label>,
     // Kernel VRF table id, resolved from the learned VRF device of the same
     // name (None until the VRF device is learned). Consumed by per-VRF
     // routing.
@@ -203,7 +208,43 @@ fn load_callbacks() -> Callbacks<Master> {
         .path(network_instances::network_instance::PATH)
         .create_apply(|master, args| {
             let name = args.dnode.get_string_relative("name").unwrap();
-            network_instance_create(master, name);
+            network_instance_create(master, name.clone());
+            let ni = master.network_instances.get_mut(&name).unwrap();
+            if let Some(rd) = args
+                .dnode
+                .get_string_relative(
+                    "./holo-network-instance:l3vpn/route-distinguisher",
+                )
+                .and_then(|rd| RouteDistinguisher::try_from_yang(&rd))
+            {
+                ni.rd = Some(rd);
+            }
+            for dnode in args
+                .dnode
+                .find_xpath("./holo-network-instance:l3vpn/import-route-target")
+                .unwrap()
+            {
+                if let Some(rt) = RouteTarget::try_from_yang(&dnode.get_string())
+                {
+                    ni.import_rts.insert(rt);
+                }
+            }
+            for dnode in args
+                .dnode
+                .find_xpath("./holo-network-instance:l3vpn/export-route-target")
+                .unwrap()
+            {
+                if let Some(rt) = RouteTarget::try_from_yang(&dnode.get_string())
+                {
+                    ni.export_rts.insert(rt);
+                }
+            }
+            let ensure_export_label =
+                ni.rd.is_some() || !ni.export_rts.is_empty();
+            if ensure_export_label {
+                vpn_export_label_ensure(master, &name);
+            }
+            vpn_imports_update(master);
         })
         .delete_apply(|master, args| {
             let name = args.list_entry.into_network_instance().unwrap();
@@ -232,6 +273,22 @@ fn load_callbacks() -> Callbacks<Master> {
             let ni = master.network_instances.get_mut(&name).unwrap();
             ni.description = None;
         })
+        .path(network_instances::network_instance::l3vpn::route_distinguisher::PATH)
+        .modify_apply(|master, args| {
+            let name = args.list_entry.into_network_instance().unwrap();
+            let rd = args.dnode.get_string();
+            let rd = RouteDistinguisher::try_from_yang(&rd).unwrap();
+            vpn_export_label_ensure(master, &name);
+            let ni = master.network_instances.get_mut(&name).unwrap();
+            ni.rd = Some(rd);
+            vpn_imports_update(master);
+        })
+        .delete_apply(|master, args| {
+            let name = args.list_entry.into_network_instance().unwrap();
+            let ni = master.network_instances.get_mut(&name).unwrap();
+            ni.rd = None;
+            vpn_imports_update(master);
+        })
         .path(network_instances::network_instance::l3vpn::import_route_target::PATH)
         .create_apply(|master, args| {
             let name = args.list_entry.into_network_instance().unwrap();
@@ -247,6 +304,31 @@ fn load_callbacks() -> Callbacks<Master> {
             let rt = RouteTarget::try_from_yang(&rt).unwrap();
             let ni = master.network_instances.get_mut(&name).unwrap();
             ni.import_rts.remove(&rt);
+            vpn_imports_update(master);
+        })
+        .path(network_instances::network_instance::l3vpn::export_route_target::PATH)
+        .create_apply(|master, args| {
+            let name = args.list_entry.into_network_instance().unwrap();
+            let rt = args.dnode.get_string();
+            let rt = RouteTarget::try_from_yang(&rt).unwrap();
+            let rd = args
+                .dnode
+                .get_string_relative("../route-distinguisher")
+                .and_then(|rd| RouteDistinguisher::try_from_yang(&rd));
+            vpn_export_label_ensure(master, &name);
+            let ni = master.network_instances.get_mut(&name).unwrap();
+            if ni.rd.is_none() {
+                ni.rd = rd;
+            }
+            ni.export_rts.insert(rt);
+            vpn_imports_update(master);
+        })
+        .delete_apply(|master, args| {
+            let name = args.list_entry.into_network_instance().unwrap();
+            let rt = args.dnode.get_string();
+            let rt = RouteTarget::try_from_yang(&rt).unwrap();
+            let ni = master.network_instances.get_mut(&name).unwrap();
+            ni.export_rts.remove(&rt);
             vpn_imports_update(master);
         })
         .path(control_plane_protocol::static_routes::ipv4::route::PATH)
@@ -1376,7 +1458,6 @@ fn network_instance_create(master: &mut Master, name: String) {
             ..Default::default()
         },
     );
-    vpn_imports_update(master);
 }
 
 #[cfg(test)]
@@ -1547,6 +1628,68 @@ pub(crate) fn vpn_imports_update(master: &Master) {
         })
         .collect();
     *master.shared.vpn_imports.lock().unwrap() = imports;
+
+    let exports: BTreeMap<u32, VpnExport> = master
+        .network_instances
+        .values()
+        .filter(|ni| ni.enabled && !ni.export_rts.is_empty())
+        .filter_map(|ni| {
+            Some((
+                ni.table_id?,
+                VpnExport {
+                    rd: ni.rd?,
+                    export_rts: ni.export_rts.clone(),
+                    label: ni.export_label?,
+                },
+            ))
+        })
+        .collect();
+    let export_table_ids = exports.keys().copied().collect::<BTreeSet<_>>();
+    *master.shared.vpn_exports.lock().unwrap() = exports;
+    vpn_exports_replay(master, &export_table_ids);
+}
+
+fn vpn_export_label_ensure(master: &mut Master, name: &str) {
+    let Some(ni) = master.network_instances.get(name) else {
+        return;
+    };
+    if ni.export_label.is_some() {
+        return;
+    }
+
+    let Ok(label) = master.shared.label_manager.lock().unwrap().label_request() else {
+        return;
+    };
+    let ni = master.network_instances.get_mut(name).unwrap();
+    ni.export_label = Some(label);
+}
+
+fn vpn_exports_replay(master: &Master, table_ids: &BTreeSet<u32>) {
+    if table_ids.is_empty() {
+        return;
+    }
+
+    let redistribute_prefix =
+        |prefix, routes: &BTreeMap<RouteKey, Route>| {
+        for route in routes.values().filter(|route| {
+            route
+                .table_id
+                .is_some_and(|table_id| table_ids.contains(&table_id))
+                && route.flags.contains(RouteFlags::ACTIVE)
+                && !route.flags.contains(RouteFlags::REMOVED)
+        }) {
+            for sub in master.rib.subscriptions.values() {
+                crate::ibus::notify_redistribute_add(sub, prefix, route);
+            }
+        }
+    };
+
+    for (prefix, routes) in master.rib.ip.ipv4().iter() {
+        redistribute_prefix(prefix.into(), routes);
+    }
+    for (prefix, routes) in master.rib.ip.ipv6().iter() {
+        redistribute_prefix(prefix.into(), routes);
+    }
 }
 
 fn static_nexthop_get(interfaces: &Interfaces, nexthop: &StaticRouteNexthop) -> Option<Nexthop> {

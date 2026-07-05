@@ -883,6 +883,7 @@ where
                     nbr,
                     table,
                     nbr_reach,
+                    instance.config.asn,
                     instance.shared,
                     &mut instance.state.rib.attr_sets,
                     &instance.state.policy_apply_tasks,
@@ -929,6 +930,12 @@ fn withdraw_routes<A>(
         };
 
         adj_rib.remove_out_pre(attr_sets);
+        if let Some(route) = adj_rib.out_post()
+            && let Some(label) = route.vpn_label
+        {
+            let update_queue = A::update_queue(&mut nbr.update_queues);
+            update_queue.labels.insert(*prefix, label);
+        }
         if adj_rib.remove_out_post(attr_sets).is_some() {
             let update_queue = A::update_queue(&mut nbr.update_queues);
             update_queue.unreach.insert(*prefix);
@@ -946,6 +953,7 @@ pub(crate) fn advertise_routes<A>(
     nbr: &mut Neighbor,
     table: &mut RoutingTable<A>,
     routes: Vec<(A::Prefix, Box<Route>)>,
+    local_asn: u32,
     shared: &InstanceShared,
     attr_sets: &mut AttrSetsCxt,
     policy_apply_tasks: &PolicyApplyTasks,
@@ -957,6 +965,34 @@ pub(crate) fn advertise_routes<A>(
         let dest = table.prefixes.get_mut(prefix).unwrap();
         let adj_rib = dest.adj_rib.entry(nbr.remote_addr).or_default();
         adj_rib.update_out_pre(route.clone(), attr_sets);
+    }
+
+    if !A::POLICY_DISSEMINATE {
+        for (prefix, route) in routes {
+            let mut attrs = route.policy_info().attrs;
+            rib::attrs_tx_update::<A>(
+                &mut attrs,
+                nbr,
+                local_asn,
+                route.origin.is_local(),
+            );
+
+            let dest = table.prefixes.get_mut(&prefix).unwrap();
+            let adj_rib = dest.adj_rib.entry(nbr.remote_addr).or_default();
+            adj_rib.update_out_post(route.clone(), attr_sets);
+
+            let update_queue = A::update_queue(&mut nbr.update_queues);
+            if let Some(label) = route.vpn_label {
+                update_queue.labels.insert(prefix, label);
+            }
+            update_queue.reach.entry(attrs).or_default().insert(prefix);
+        }
+
+        let msg_list = nbr.update_queues.build_updates();
+        if !msg_list.is_empty() {
+            nbr.message_list_send(msg_list);
+        }
+        return;
     }
 
     // Get policy configuration for the address family.

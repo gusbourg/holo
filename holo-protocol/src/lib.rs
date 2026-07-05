@@ -21,11 +21,11 @@ use holo_northbound::{
     NbDaemonReceiver, NbDaemonSender, NbProviderSender, process_northbound_msg,
 };
 use holo_utils::Database;
-use holo_utils::bgp::RouteTarget;
+use holo_utils::bgp::{RouteDistinguisher, RouteTarget};
 use holo_utils::bier::BierCfg;
 use holo_utils::ibus::{IbusChannelsTx, IbusMsg, IbusReceiver, IbusSender};
 use holo_utils::keychain::Keychains;
-use holo_utils::mpls::LabelManager;
+use holo_utils::mpls::{Label, LabelManager};
 use holo_utils::policy::{MatchSets, Policies};
 use holo_utils::protocol::Protocol;
 use holo_utils::sr::SrCfg;
@@ -112,6 +112,8 @@ pub struct InstanceShared {
     pub bier_config: Arc<BierCfg>,
     // VPN import state learned from network-instance configuration.
     pub vpn_imports: Arc<Mutex<BTreeMap<String, VpnImport>>>,
+    // VPN export state learned from network-instance configuration.
+    pub vpn_exports: Arc<Mutex<BTreeMap<u32, VpnExport>>>,
     // Event recorder configuration.
     pub event_recorder_config: Option<event_recorder::Config>,
 }
@@ -120,6 +122,13 @@ pub struct InstanceShared {
 pub struct VpnImport {
     pub table_id: Option<u32>,
     pub import_rts: BTreeSet<RouteTarget>,
+}
+
+#[derive(Clone, Debug)]
+pub struct VpnExport {
+    pub rd: RouteDistinguisher,
+    pub export_rts: BTreeSet<RouteTarget>,
+    pub label: Label,
 }
 
 /// Instance input message.
@@ -179,6 +188,7 @@ impl std::fmt::Debug for InstanceShared {
             .field("sr_config", &self.sr_config)
             .field("bier_config", &self.bier_config)
             .field("vpn_imports", &self.vpn_imports)
+            .field("vpn_exports", &self.vpn_exports)
             .finish()
     }
 }

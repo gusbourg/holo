@@ -15,6 +15,7 @@ use chrono::{DateTime, Utc};
 use holo_protocol::InstanceChannelsTx;
 use holo_utils::bgp::{AfiSafi, RouteType, WellKnownCommunities};
 use holo_utils::ibus::IbusChannelsTx;
+use holo_utils::mpls::Label;
 use holo_utils::socket::{TTL_MAX, TcpConnInfo, TcpStream};
 use holo_utils::task::{IntervalTask, Task, TimeoutTask};
 use num_traits::{FromPrimitive, ToPrimitive};
@@ -124,6 +125,7 @@ pub struct NeighborUpdateQueues {
 pub struct NeighborUpdateQueue<A: AddressFamily> {
     pub reach: BTreeMap<Attrs, BTreeSet<A::Prefix>>,
     pub unreach: BTreeSet<A::Prefix>,
+    pub labels: BTreeMap<A::Prefix, Label>,
 }
 
 // Type aliases.
@@ -598,6 +600,8 @@ impl Neighbor {
         // Send initial routing updates.
         self.initial_routing_update::<Ipv4Unicast>(instance);
         self.initial_routing_update::<Ipv6Unicast>(instance);
+        self.initial_routing_update::<Vpnv4Unicast>(instance);
+        self.initial_routing_update::<Vpnv6Unicast>(instance);
     }
 
     // Closes the BGP session, performing necessary cleanup and releasing resources.
@@ -952,6 +956,7 @@ impl Neighbor {
             self,
             table,
             routes,
+            instance.config.asn,
             instance.shared,
             &mut instance.state.rib.attr_sets,
             &instance.state.policy_apply_tasks,
@@ -1198,6 +1203,7 @@ where
         NeighborUpdateQueue {
             reach: Default::default(),
             unreach: Default::default(),
+            labels: Default::default(),
         }
     }
 }

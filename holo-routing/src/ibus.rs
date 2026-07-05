@@ -229,6 +229,7 @@ pub(crate) fn process_notification_msg(master: &mut Master, msg: IbusMsg) {
                 msg.ifname.clone(),
                 msg.ifindex,
                 msg.flags,
+                msg.master_ifindex,
                 msg.vrf_table_id,
             );
             // If this is a VRF device, resolve the table id of a matching
@@ -257,21 +258,26 @@ pub(crate) fn process_notification_msg(master: &mut Master, msg: IbusMsg) {
         }
         // Interface address addition notification.
         IbusMsg::InterfaceAddressAdd(msg) => {
-            let Some(iface) = master.interfaces.get_mut_by_name(&msg.ifname)
-            else {
-                return;
-            };
+            let (ifindex, master_ifindex) = {
+                let Some(iface) =
+                    master.interfaces.get_mut_by_name(&msg.ifname)
+                else {
+                    return;
+                };
 
-            // Add address to interface.
-            iface.addresses.insert(msg.addr, msg.flags);
-            let ifindex = iface.ifindex;
+                // Add address to interface.
+                iface.addresses.insert(msg.addr, msg.flags);
+                (iface.ifindex, iface.master_ifindex)
+            };
+            let table_id =
+                master.interfaces.vrf_table_id_by_ifindex(master_ifindex);
 
             // Add connected route to the RIB.
             if !msg.flags.contains(AddressFlags::UNNUMBERED) {
                 master.ibus_tx.route_ip_add(RouteMsg {
                     protocol: Protocol::DIRECT,
                     kind: RouteKind::Unicast,
-                    table_id: None,
+                    table_id,
                     prefix: msg.addr.apply_mask(),
                     distance: 0,
                     metric: 0,
@@ -283,19 +289,25 @@ pub(crate) fn process_notification_msg(master: &mut Master, msg: IbusMsg) {
         }
         // Interface address delete notification.
         IbusMsg::InterfaceAddressDel(msg) => {
-            let Some(iface) = master.interfaces.get_mut_by_name(&msg.ifname)
-            else {
-                return;
-            };
+            let master_ifindex = {
+                let Some(iface) =
+                    master.interfaces.get_mut_by_name(&msg.ifname)
+                else {
+                    return;
+                };
 
-            // Remove address from interface.
-            iface.addresses.remove(&msg.addr);
+                // Remove address from interface.
+                iface.addresses.remove(&msg.addr);
+                iface.master_ifindex
+            };
+            let table_id =
+                master.interfaces.vrf_table_id_by_ifindex(master_ifindex);
 
             // Remove connected route from the RIB.
             if !msg.flags.contains(AddressFlags::UNNUMBERED) {
                 master.ibus_tx.route_ip_del(RouteKeyMsg {
                     protocol: Protocol::DIRECT,
-                    table_id: None,
+                    table_id,
                     prefix: msg.addr.apply_mask(),
                 });
             }
@@ -352,6 +364,7 @@ pub(crate) fn notify_redistribute_del(
     sub: &RedistributeSub,
     prefix: IpNetwork,
     protocol: Protocol,
+    table_id: Option<u32>,
 ) {
     if !sub.protocols.contains(&(prefix.address_family(), protocol)) {
         return;
@@ -359,7 +372,7 @@ pub(crate) fn notify_redistribute_del(
 
     let msg = RouteKeyMsg {
         protocol,
-        table_id: None,
+        table_id,
         prefix,
     };
     let msg = IbusMsg::RouteRedistributeDel(msg);

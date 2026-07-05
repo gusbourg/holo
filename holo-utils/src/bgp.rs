@@ -318,6 +318,58 @@ impl ToYang for RouteDistinguisher {
     }
 }
 
+impl TryFromYang for RouteDistinguisher {
+    fn try_from_yang(value: &str) -> Option<Self> {
+        let mut fields = value.split(':').collect::<Vec<_>>();
+        if fields.len() == 3 {
+            return match fields[0] {
+                "0" => Some(RouteDistinguisher::As2Administrator {
+                    asn: fields[1].parse().ok()?,
+                    number: fields[2].parse().ok()?,
+                }),
+                "1" => Some(RouteDistinguisher::Ipv4Administrator {
+                    addr: fields[1].parse().ok()?,
+                    number: fields[2].parse().ok()?,
+                }),
+                "2" => Some(RouteDistinguisher::As4Administrator {
+                    asn: fields[1].parse().ok()?,
+                    number: fields[2].parse().ok()?,
+                }),
+                _ => None,
+            };
+        }
+
+        if fields.len() != 2 {
+            return None;
+        }
+        let local = fields.pop().unwrap();
+        let global = fields.pop().unwrap();
+
+        if let Ok(asn) = global.parse::<u16>()
+            && let Ok(number) = local.parse::<u32>()
+        {
+            return Some(RouteDistinguisher::As2Administrator { asn, number });
+        }
+
+        if let Ok(addr) = global.parse::<Ipv4Addr>()
+            && let Ok(number) = local.parse::<u16>()
+        {
+            return Some(RouteDistinguisher::Ipv4Administrator {
+                addr,
+                number,
+            });
+        }
+
+        if let Ok(asn) = global.parse::<u32>()
+            && let Ok(number) = local.parse::<u16>()
+        {
+            return Some(RouteDistinguisher::As4Administrator { asn, number });
+        }
+
+        None
+    }
+}
+
 // ===== impl RouteTarget =====
 
 impl RouteTarget {

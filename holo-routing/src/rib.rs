@@ -406,7 +406,9 @@ impl Rib {
 
                     // Notify protocol instances about the deleted route.
                     for sub in self.subscriptions.values() {
-                        ibus::notify_redistribute_del(sub, prefix, protocol);
+                        ibus::notify_redistribute_del(
+                            sub, prefix, protocol, table_id,
+                        );
                     }
                 }
             }

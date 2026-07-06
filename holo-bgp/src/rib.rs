@@ -1141,10 +1141,12 @@ pub(crate) fn nexthop_untrack<A>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+
+    use ipnetwork::Ipv4Network;
+
     use super::*;
     use crate::packet::attribute::{AsPathSegmentType, BaseAttrs};
-    use ipnetwork::Ipv4Network;
-    use std::collections::VecDeque;
 
     fn make_route(
         origin: RouteOrigin,

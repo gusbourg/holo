@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT
 //
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -15,7 +15,7 @@ use holo_utils::bgp::{
     evpn_mac_mobility_from_ext_comm,
 };
 
-use crate::packet::message::EvpnRoute;
+use crate::packet::message::{EvpnEthernetAutoDiscovery, EvpnRoute};
 use crate::rib::{Route, RouteCompare, RouteRejectReason};
 
 pub const VLAN_MAX: u16 = 4094;
@@ -47,6 +47,28 @@ pub enum MacMobilityDecision {
 pub enum MacMoveState {
     Stable,
     Duplicate,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AliasingRouteKind {
+    EadPerEs { mode: EvpnMultihomingMode },
+    EadPerEvi,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AliasingAdvertisement {
+    pub peer: IpAddr,
+    pub nexthop: IpAddr,
+    pub esi: EthernetSegmentId,
+    pub ethernet_tag_id: u32,
+    pub label: u32,
+    pub kind: AliasingRouteKind,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AliasingResolution {
+    pub active: BTreeSet<IpAddr>,
+    pub backup: BTreeSet<IpAddr>,
 }
 
 #[derive(Debug)]
@@ -163,6 +185,111 @@ pub fn has_matching_es_import_rt<'a>(
         .collect::<BTreeSet<_>>();
 
     ext_comms.into_iter().any(|comm| import_rts.contains(comm))
+}
+
+pub fn resolve_aliasing_nexthops(
+    mac_esi: EthernetSegmentId,
+    ethernet_tag_id: u32,
+    type2_nexthop: IpAddr,
+    advertisements: impl IntoIterator<Item = AliasingAdvertisement>,
+) -> AliasingResolution {
+    if mac_esi == [0; 10] {
+        return single_active_nexthop(type2_nexthop);
+    }
+
+    let mut per_es = BTreeMap::new();
+    let mut per_evi = BTreeMap::new();
+    for adv in advertisements {
+        if adv.esi != mac_esi {
+            continue;
+        }
+
+        match adv.kind {
+            AliasingRouteKind::EadPerEs { mode }
+                if ead_per_es(adv.ethernet_tag_id, adv.label) =>
+            {
+                per_es.insert(adv.peer, mode);
+            }
+            AliasingRouteKind::EadPerEvi
+                if adv.ethernet_tag_id == ethernet_tag_id
+                    && !ead_per_es(adv.ethernet_tag_id, adv.label) =>
+            {
+                per_evi.insert(adv.peer, adv.nexthop);
+            }
+            _ => {}
+        }
+    }
+
+    let qualifying = per_evi
+        .into_iter()
+        .filter_map(|(peer, nexthop)| {
+            per_es.get(&peer).map(|mode| (peer, nexthop, *mode))
+        })
+        .collect::<Vec<_>>();
+    if qualifying.is_empty() {
+        return single_active_nexthop(type2_nexthop);
+    }
+
+    let single_active = qualifying
+        .iter()
+        .any(|(_, _, mode)| *mode == EvpnMultihomingMode::SingleActive);
+    if !single_active {
+        return AliasingResolution {
+            active: qualifying
+                .into_iter()
+                .map(|(_, nexthop, _)| nexthop)
+                .collect(),
+            backup: BTreeSet::new(),
+        };
+    }
+
+    let primary = qualifying
+        .iter()
+        .find(|(_, nexthop, _)| *nexthop == type2_nexthop)
+        .or_else(|| qualifying.first())
+        .map(|(_, nexthop, _)| *nexthop)
+        .unwrap_or(type2_nexthop);
+    let backup = qualifying
+        .into_iter()
+        .map(|(_, nexthop, _)| nexthop)
+        .filter(|nexthop| *nexthop != primary)
+        .collect();
+
+    AliasingResolution {
+        active: [primary].into(),
+        backup,
+    }
+}
+
+pub fn aliasing_advertisement_from_ead<'a>(
+    peer: IpAddr,
+    nexthop: IpAddr,
+    ead: &EvpnEthernetAutoDiscovery,
+    ext_comms: impl IntoIterator<Item = &'a ExtComm>,
+) -> Option<AliasingAdvertisement> {
+    let kind = if ead_per_es(ead.ethernet_tag_id, ead.label) {
+        let (mode, _) =
+            ext_comms.into_iter().find_map(esi_label_from_ext_comm)?;
+        AliasingRouteKind::EadPerEs { mode }
+    } else {
+        AliasingRouteKind::EadPerEvi
+    };
+
+    Some(AliasingAdvertisement {
+        peer,
+        nexthop,
+        esi: ead.esi,
+        ethernet_tag_id: ead.ethernet_tag_id,
+        label: ead.label,
+        kind,
+    })
+}
+
+fn single_active_nexthop(nexthop: IpAddr) -> AliasingResolution {
+    AliasingResolution {
+        active: [nexthop].into(),
+        backup: BTreeSet::new(),
+    }
 }
 
 impl<T> MacMoveTracker<T>
@@ -333,6 +460,34 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(single_active, (EvpnMultihomingMode::SingleActive, 16001));
+    }
+
+    #[test]
+    fn aliasing_ead_conversion_uses_esi_label_mode() {
+        let peer = ip4!("192.0.2.1").into();
+        let ead = EvpnEthernetAutoDiscovery {
+            rd: rd(),
+            esi: ESI,
+            ethernet_tag_id: MAX_ETHERNET_TAG_ID,
+            label: 0,
+        };
+        let ext_comm =
+            esi_label_ext_comm(EvpnMultihomingMode::SingleActive, 16000);
+
+        assert_eq!(
+            aliasing_advertisement_from_ead(peer, peer, &ead, [&ext_comm]),
+            Some(AliasingAdvertisement {
+                peer,
+                nexthop: peer,
+                esi: ESI,
+                ethernet_tag_id: MAX_ETHERNET_TAG_ID,
+                label: 0,
+                kind: AliasingRouteKind::EadPerEs {
+                    mode: EvpnMultihomingMode::SingleActive,
+                },
+            })
+        );
+        assert_eq!(aliasing_advertisement_from_ead(peer, peer, &ead, []), None);
     }
 
     #[test]
@@ -524,6 +679,124 @@ mod tests {
     }
 
     #[test]
+    fn aliasing_all_active_uses_ead_per_evi_and_per_es_intersection() {
+        let pe_a = ip4!("192.0.2.1").into();
+        let pe_b = ip4!("192.0.2.2").into();
+        let resolution = resolve_aliasing_nexthops(
+            ESI,
+            100,
+            pe_a,
+            [
+                ead_per_es_adv(pe_a, EvpnMultihomingMode::AllActive),
+                ead_per_es_adv(pe_b, EvpnMultihomingMode::AllActive),
+                ead_per_evi_adv(pe_a, 100),
+                ead_per_evi_adv(pe_b, 100),
+            ],
+        );
+
+        assert_eq!(resolution.active, [pe_a, pe_b].into());
+        assert!(resolution.backup.is_empty());
+    }
+
+    #[test]
+    fn aliasing_drops_peer_without_ead_per_es() {
+        let pe_a = ip4!("192.0.2.1").into();
+        let pe_b = ip4!("192.0.2.2").into();
+        let resolution = resolve_aliasing_nexthops(
+            ESI,
+            100,
+            pe_a,
+            [
+                ead_per_es_adv(pe_a, EvpnMultihomingMode::AllActive),
+                ead_per_evi_adv(pe_a, 100),
+                ead_per_evi_adv(pe_b, 100),
+            ],
+        );
+
+        assert_eq!(resolution.active, [pe_a].into());
+        assert!(resolution.backup.is_empty());
+    }
+
+    #[test]
+    fn aliasing_single_active_separates_primary_and_backup() {
+        let pe_a = ip4!("192.0.2.1").into();
+        let pe_b = ip4!("192.0.2.2").into();
+        let resolution = resolve_aliasing_nexthops(
+            ESI,
+            100,
+            pe_a,
+            [
+                ead_per_es_adv(pe_a, EvpnMultihomingMode::SingleActive),
+                ead_per_es_adv(pe_b, EvpnMultihomingMode::SingleActive),
+                ead_per_evi_adv(pe_a, 100),
+                ead_per_evi_adv(pe_b, 100),
+            ],
+        );
+
+        assert_eq!(resolution.active, [pe_a].into());
+        assert_eq!(resolution.backup, [pe_b].into());
+    }
+
+    #[test]
+    fn aliasing_single_homed_passthrough_uses_type2_nexthop() {
+        let pe_a = ip4!("192.0.2.1").into();
+        let pe_b = ip4!("192.0.2.2").into();
+        let resolution = resolve_aliasing_nexthops(
+            [0; 10],
+            100,
+            pe_a,
+            [
+                ead_per_es_adv(pe_b, EvpnMultihomingMode::AllActive),
+                ead_per_evi_adv(pe_b, 100),
+            ],
+        );
+
+        assert_eq!(resolution.active, [pe_a].into());
+        assert!(resolution.backup.is_empty());
+    }
+
+    #[test]
+    fn aliasing_missing_ead_falls_back_to_type2_nexthop() {
+        let pe_a = ip4!("192.0.2.1").into();
+        let resolution = resolve_aliasing_nexthops(ESI, 100, pe_a, []);
+
+        assert_eq!(resolution.active, [pe_a].into());
+        assert!(resolution.backup.is_empty());
+    }
+
+    #[test]
+    fn aliasing_ignores_wrong_esi_wrong_tag_and_malformed_ead() {
+        let pe_a = ip4!("192.0.2.1").into();
+        let pe_b = ip4!("192.0.2.2").into();
+        let other_esi = [9; 10];
+        let malformed_per_es = AliasingAdvertisement {
+            ethernet_tag_id: MAX_ETHERNET_TAG_ID,
+            label: 16000,
+            ..ead_per_es_adv(pe_b, EvpnMultihomingMode::AllActive)
+        };
+        let wrong_esi_per_evi = AliasingAdvertisement {
+            esi: other_esi,
+            ..ead_per_evi_adv(pe_b, 100)
+        };
+        let wrong_tag_per_evi = ead_per_evi_adv(pe_b, 200);
+        let resolution = resolve_aliasing_nexthops(
+            ESI,
+            100,
+            pe_a,
+            [
+                ead_per_es_adv(pe_a, EvpnMultihomingMode::AllActive),
+                ead_per_evi_adv(pe_a, 100),
+                malformed_per_es,
+                wrong_esi_per_evi,
+                wrong_tag_per_evi,
+            ],
+        );
+
+        assert_eq!(resolution.active, [pe_a].into());
+        assert!(resolution.backup.is_empty());
+    }
+
+    #[test]
     fn df_election_uses_ordered_originators_and_vlan_modulo() {
         let election = elect_df(
             ip4!("192.0.2.3").into(),
@@ -562,6 +835,34 @@ mod tests {
         holo_utils::bgp::RouteDistinguisher::As2Administrator {
             asn: 65000,
             number: 1,
+        }
+    }
+
+    fn ead_per_es_adv(
+        peer: IpAddr,
+        mode: EvpnMultihomingMode,
+    ) -> AliasingAdvertisement {
+        AliasingAdvertisement {
+            peer,
+            nexthop: peer,
+            esi: ESI,
+            ethernet_tag_id: MAX_ETHERNET_TAG_ID,
+            label: 0,
+            kind: AliasingRouteKind::EadPerEs { mode },
+        }
+    }
+
+    fn ead_per_evi_adv(
+        peer: IpAddr,
+        ethernet_tag_id: u32,
+    ) -> AliasingAdvertisement {
+        AliasingAdvertisement {
+            peer,
+            nexthop: peer,
+            esi: ESI,
+            ethernet_tag_id,
+            label: 16000,
+            kind: AliasingRouteKind::EadPerEvi,
         }
     }
 

@@ -20,9 +20,7 @@ use holo_utils::protocol::Protocol;
 use holo_utils::yang::DataNodeRefExt;
 use holo_yang::TryFromYang;
 
-use crate::af::{
-    Ipv4LabeledUnicast, Ipv4Unicast, Ipv6LabeledUnicast, Ipv6Unicast,
-};
+use crate::af::{Ipv4LabeledUnicast, Ipv4Unicast, Ipv6LabeledUnicast, Ipv6Unicast};
 use crate::instance::{Instance, InstanceUpView};
 use crate::neighbor::{Neighbor, PeerType, fsm};
 use crate::network;

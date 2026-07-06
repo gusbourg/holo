@@ -471,6 +471,16 @@ impl PolicyApplyTasks {
     pub(crate) fn enqueue(&self, msg: PolicyApplyMsg) {
         let _ = self.tx.send(msg);
     }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_testing(
+        tx: crossbeam_channel::Sender<PolicyApplyMsg>,
+    ) -> Self {
+        Self {
+            tx,
+            _tasks: Vec::new(),
+        }
+    }
 }
 
 // ===== helper functions =====
@@ -495,6 +505,17 @@ fn process_ibus_msg(
         IbusMsg::PolicyMatchSetsUpd(match_sets) => {
             // Update the local copy of the policy match sets.
             instance.shared.policy_match_sets = match_sets;
+
+            if let Some((mut instance, neighbors)) = instance.as_up() {
+                events::reapply_import_policy_all::<Ipv4Unicast>(
+                    &mut instance,
+                    neighbors,
+                );
+                events::reapply_import_policy_all::<Ipv6Unicast>(
+                    &mut instance,
+                    neighbors,
+                );
+            }
         }
         IbusMsg::PolicyUpd(policy) => {
             // Update the local copy of the policy definition.
@@ -502,10 +523,32 @@ fn process_ibus_msg(
                 .shared
                 .policies
                 .insert(policy.name.clone(), policy.clone());
+
+            if let Some((mut instance, neighbors)) = instance.as_up() {
+                events::reapply_import_policy_all::<Ipv4Unicast>(
+                    &mut instance,
+                    neighbors,
+                );
+                events::reapply_import_policy_all::<Ipv6Unicast>(
+                    &mut instance,
+                    neighbors,
+                );
+            }
         }
         IbusMsg::PolicyDel(policy_name) => {
             // Remove the local copy of the policy definition.
             instance.shared.policies.remove(&policy_name);
+
+            if let Some((mut instance, neighbors)) = instance.as_up() {
+                events::reapply_import_policy_all::<Ipv4Unicast>(
+                    &mut instance,
+                    neighbors,
+                );
+                events::reapply_import_policy_all::<Ipv6Unicast>(
+                    &mut instance,
+                    neighbors,
+                );
+            }
         }
         IbusMsg::RouteRedistributeAdd(msg) => {
             // Route redistribute update notification.

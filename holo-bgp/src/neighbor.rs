@@ -1072,6 +1072,17 @@ impl Neighbor {
                 }
             }
             ClearType::SoftInbound => {
+                events::reapply_nbr_import_policy_for_nbr::<Ipv4Unicast>(
+                    instance.state,
+                    instance.shared,
+                    self,
+                );
+                events::reapply_nbr_import_policy_for_nbr::<Ipv6Unicast>(
+                    instance.state,
+                    instance.shared,
+                    self,
+                );
+
                 // Request the Adj-RIB-In for this neighbor to be re-sent.
                 for (afi, safi) in self
                     .capabilities_nego

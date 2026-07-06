@@ -20,14 +20,14 @@ use holo_utils::protocol::Protocol;
 use holo_utils::yang::DataNodeRefExt;
 use holo_yang::TryFromYang;
 
-use crate::af::{Ipv4Unicast, Ipv6Unicast};
+use crate::af::{Ipv4Unicast, Ipv6Unicast, Vpnv4Unicast, Vpnv6Unicast};
 use crate::instance::{Instance, InstanceUpView};
 use crate::neighbor::{Neighbor, PeerType, fsm};
-use crate::network;
 use crate::northbound::yang_gen::bgp;
 use crate::packet::iana::{CeaseSubcode, ErrorCode};
 use crate::packet::message::{Message, NotificationMsg};
 use crate::rib::RouteOrigin;
+use crate::{events, network};
 
 #[derive(Debug, Default, EnumAsInner)]
 pub enum ListEntry {
@@ -52,6 +52,7 @@ pub enum Event {
     NeighborDelete(IpAddr),
     NeighborReset(IpAddr, NotificationMsg),
     NeighborUpdateAuth(IpAddr),
+    PolicyImportReapply(Option<IpAddr>, Option<AfiSafi>),
     RedistributeIbusSub(Protocol, AddressFamily),
     RedistributeDelete(Protocol, AddressFamily, AfiSafi),
     UpdateTraceOptions,
@@ -436,26 +437,35 @@ fn load_callbacks() -> Callbacks<Instance> {
         .path(bgp::global::afi_safis::afi_safi::apply_policy::import_policy::PATH)
         .create_apply(|instance, args| {
             let afi_safi = args.list_entry.into_afi_safi().unwrap();
-            let afi_safi = instance.config.afi_safi.get_mut(&afi_safi).unwrap();
+            let afi_safi_cfg = instance.config.afi_safi.get_mut(&afi_safi).unwrap();
 
             let policy = args.dnode.get_string();
-            afi_safi.apply_policy.import_policy.insert(policy);
+            afi_safi_cfg.apply_policy.import_policy.insert(policy);
+
+            let event_queue = args.event_queue;
+            event_queue.insert(Event::PolicyImportReapply(None, Some(afi_safi)));
         })
         .delete_apply(|instance, args| {
             let afi_safi = args.list_entry.into_afi_safi().unwrap();
-            let afi_safi = instance.config.afi_safi.get_mut(&afi_safi).unwrap();
+            let afi_safi_cfg = instance.config.afi_safi.get_mut(&afi_safi).unwrap();
 
             let policy = args.dnode.get_string();
-            afi_safi.apply_policy.import_policy.remove(&policy);
+            afi_safi_cfg.apply_policy.import_policy.remove(&policy);
+
+            let event_queue = args.event_queue;
+            event_queue.insert(Event::PolicyImportReapply(None, Some(afi_safi)));
         })
         .path(bgp::global::afi_safis::afi_safi::apply_policy::default_import_policy::PATH)
         .modify_apply(|instance, args| {
             let afi_safi = args.list_entry.into_afi_safi().unwrap();
-            let afi_safi = instance.config.afi_safi.get_mut(&afi_safi).unwrap();
+            let afi_safi_cfg = instance.config.afi_safi.get_mut(&afi_safi).unwrap();
 
             let default = args.dnode.get_string();
             let default = DefaultPolicyType::try_from_yang(&default).unwrap();
-            afi_safi.apply_policy.default_import_policy = default;
+            afi_safi_cfg.apply_policy.default_import_policy = default;
+
+            let event_queue = args.event_queue;
+            event_queue.insert(Event::PolicyImportReapply(None, Some(afi_safi)));
         })
         .path(bgp::global::afi_safis::afi_safi::apply_policy::export_policy::PATH)
         .create_apply(|instance, args| {
@@ -683,16 +693,25 @@ fn load_callbacks() -> Callbacks<Instance> {
         .create_apply(|instance, args| {
             let policy = args.dnode.get_string();
             instance.config.apply_policy.import_policy.insert(policy);
+
+            let event_queue = args.event_queue;
+            event_queue.insert(Event::PolicyImportReapply(None, None));
         })
         .delete_apply(|instance, args| {
             let policy = args.dnode.get_string();
             instance.config.apply_policy.import_policy.remove(&policy);
+
+            let event_queue = args.event_queue;
+            event_queue.insert(Event::PolicyImportReapply(None, None));
         })
         .path(bgp::global::apply_policy::default_import_policy::PATH)
         .modify_apply(|instance, args| {
             let default = args.dnode.get_string();
             let default = DefaultPolicyType::try_from_yang(&default).unwrap();
             instance.config.apply_policy.default_import_policy = default;
+
+            let event_queue = args.event_queue;
+            event_queue.insert(Event::PolicyImportReapply(None, None));
         })
         .path(bgp::global::apply_policy::export_policy::PATH)
         .create_apply(|instance, args| {
@@ -1156,6 +1175,9 @@ fn load_callbacks() -> Callbacks<Instance> {
 
             let policy = args.dnode.get_string();
             nbr.config.apply_policy.import_policy.insert(policy);
+
+            let event_queue = args.event_queue;
+            event_queue.insert(Event::PolicyImportReapply(Some(nbr_addr), None));
         })
         .delete_apply(|instance, args| {
             let nbr_addr = args.list_entry.into_neighbor().unwrap();
@@ -1163,6 +1185,9 @@ fn load_callbacks() -> Callbacks<Instance> {
 
             let policy = args.dnode.get_string();
             nbr.config.apply_policy.import_policy.remove(&policy);
+
+            let event_queue = args.event_queue;
+            event_queue.insert(Event::PolicyImportReapply(Some(nbr_addr), None));
         })
         .path(bgp::neighbors::neighbor::apply_policy::default_import_policy::PATH)
         .modify_apply(|instance, args| {
@@ -1172,6 +1197,9 @@ fn load_callbacks() -> Callbacks<Instance> {
             let default = args.dnode.get_string();
             let default = DefaultPolicyType::try_from_yang(&default).unwrap();
             nbr.config.apply_policy.default_import_policy = default;
+
+            let event_queue = args.event_queue;
+            event_queue.insert(Event::PolicyImportReapply(Some(nbr_addr), None));
         })
         .path(bgp::neighbors::neighbor::apply_policy::export_policy::PATH)
         .create_apply(|instance, args| {
@@ -1281,28 +1309,37 @@ fn load_callbacks() -> Callbacks<Instance> {
         .create_apply(|instance, args| {
             let (nbr_addr, afi_safi) = args.list_entry.into_neighbor_afi_safi().unwrap();
             let nbr = instance.neighbors.get_mut(&nbr_addr).unwrap();
-            let afi_safi = nbr.config.afi_safi.get_mut(&afi_safi).unwrap();
+            let afi_safi_cfg = nbr.config.afi_safi.get_mut(&afi_safi).unwrap();
 
             let policy = args.dnode.get_string();
-            afi_safi.apply_policy.import_policy.insert(policy);
+            afi_safi_cfg.apply_policy.import_policy.insert(policy);
+
+            let event_queue = args.event_queue;
+            event_queue.insert(Event::PolicyImportReapply(Some(nbr_addr), Some(afi_safi)));
         })
         .delete_apply(|instance, args| {
             let (nbr_addr, afi_safi) = args.list_entry.into_neighbor_afi_safi().unwrap();
             let nbr = instance.neighbors.get_mut(&nbr_addr).unwrap();
-            let afi_safi = nbr.config.afi_safi.get_mut(&afi_safi).unwrap();
+            let afi_safi_cfg = nbr.config.afi_safi.get_mut(&afi_safi).unwrap();
 
             let policy = args.dnode.get_string();
-            afi_safi.apply_policy.import_policy.remove(&policy);
+            afi_safi_cfg.apply_policy.import_policy.remove(&policy);
+
+            let event_queue = args.event_queue;
+            event_queue.insert(Event::PolicyImportReapply(Some(nbr_addr), Some(afi_safi)));
         })
         .path(bgp::neighbors::neighbor::afi_safis::afi_safi::apply_policy::default_import_policy::PATH)
         .modify_apply(|instance, args| {
             let (nbr_addr, afi_safi) = args.list_entry.into_neighbor_afi_safi().unwrap();
             let nbr = instance.neighbors.get_mut(&nbr_addr).unwrap();
-            let afi_safi = nbr.config.afi_safi.get_mut(&afi_safi).unwrap();
+            let afi_safi_cfg = nbr.config.afi_safi.get_mut(&afi_safi).unwrap();
 
             let default = args.dnode.get_string();
             let default = DefaultPolicyType::try_from_yang(&default).unwrap();
-            afi_safi.apply_policy.default_import_policy = default;
+            afi_safi_cfg.apply_policy.default_import_policy = default;
+
+            let event_queue = args.event_queue;
+            event_queue.insert(Event::PolicyImportReapply(Some(nbr_addr), Some(afi_safi)));
         })
         .path(bgp::neighbors::neighbor::afi_safis::afi_safi::apply_policy::export_policy::PATH)
         .create_apply(|instance, args| {
@@ -1683,6 +1720,108 @@ impl Provider for Instance {
                 // Set/unset password in the listening sockets.
                 for listener in instance.state.listening_sockets.iter().filter(|listener| listener.af == nbr_addr.address_family()) {
                     network::listen_socket_md5sig_update(&listener.socket, &nbr_addr, key.as_deref());
+                }
+            }
+            Event::PolicyImportReapply(nbr_addr, afi_safi) => {
+                let Some((mut instance, neighbors)) = self.as_up() else {
+                    return;
+                };
+
+                match (nbr_addr, afi_safi) {
+                    (Some(nbr_addr), Some(AfiSafi::Ipv4Unicast)) => {
+                        events::reapply_nbr_import_policy::<Ipv4Unicast>(
+                            &mut instance,
+                            neighbors,
+                            nbr_addr,
+                        );
+                    }
+                    (Some(nbr_addr), Some(AfiSafi::Ipv6Unicast)) => {
+                        events::reapply_nbr_import_policy::<Ipv6Unicast>(
+                            &mut instance,
+                            neighbors,
+                            nbr_addr,
+                        );
+                    }
+                    (Some(nbr_addr), Some(AfiSafi::L3vpnIpv4Unicast)) => {
+                        events::reapply_nbr_import_policy::<Vpnv4Unicast>(
+                            &mut instance,
+                            neighbors,
+                            nbr_addr,
+                        );
+                    }
+                    (Some(nbr_addr), Some(AfiSafi::L3vpnIpv6Unicast)) => {
+                        events::reapply_nbr_import_policy::<Vpnv6Unicast>(
+                            &mut instance,
+                            neighbors,
+                            nbr_addr,
+                        );
+                    }
+                    (Some(_), Some(AfiSafi::L2vpnEvpn)) => {}
+                    (Some(nbr_addr), None) => {
+                        events::reapply_nbr_import_policy::<Ipv4Unicast>(
+                            &mut instance,
+                            neighbors,
+                            nbr_addr,
+                        );
+                        events::reapply_nbr_import_policy::<Ipv6Unicast>(
+                            &mut instance,
+                            neighbors,
+                            nbr_addr,
+                        );
+                        events::reapply_nbr_import_policy::<Vpnv4Unicast>(
+                            &mut instance,
+                            neighbors,
+                            nbr_addr,
+                        );
+                        events::reapply_nbr_import_policy::<Vpnv6Unicast>(
+                            &mut instance,
+                            neighbors,
+                            nbr_addr,
+                        );
+                    }
+                    (None, Some(AfiSafi::Ipv4Unicast)) => {
+                        events::reapply_import_policy_all::<Ipv4Unicast>(
+                            &mut instance,
+                            neighbors,
+                        );
+                    }
+                    (None, Some(AfiSafi::Ipv6Unicast)) => {
+                        events::reapply_import_policy_all::<Ipv6Unicast>(
+                            &mut instance,
+                            neighbors,
+                        );
+                    }
+                    (None, Some(AfiSafi::L3vpnIpv4Unicast)) => {
+                        events::reapply_import_policy_all::<Vpnv4Unicast>(
+                            &mut instance,
+                            neighbors,
+                        );
+                    }
+                    (None, Some(AfiSafi::L3vpnIpv6Unicast)) => {
+                        events::reapply_import_policy_all::<Vpnv6Unicast>(
+                            &mut instance,
+                            neighbors,
+                        );
+                    }
+                    (None, Some(AfiSafi::L2vpnEvpn)) => {}
+                    (None, None) => {
+                        events::reapply_import_policy_all::<Ipv4Unicast>(
+                            &mut instance,
+                            neighbors,
+                        );
+                        events::reapply_import_policy_all::<Ipv6Unicast>(
+                            &mut instance,
+                            neighbors,
+                        );
+                        events::reapply_import_policy_all::<Vpnv4Unicast>(
+                            &mut instance,
+                            neighbors,
+                        );
+                        events::reapply_import_policy_all::<Vpnv6Unicast>(
+                            &mut instance,
+                            neighbors,
+                        );
+                    }
                 }
             }
             Event::RedistributeIbusSub(protocol, af) => {

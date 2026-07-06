@@ -2475,7 +2475,7 @@ impl Provider for Instance {
                 }
             }
             Event::RerunSpf => {
-                if let Some((mut instance, _)) = self.as_up() {
+                if let Some((instance, _)) = self.as_up() {
                     for level in instance.config.levels() {
                         // Request a full SPF: configuration changes (e.g.
                         // address-family enable/disable) can alter SPT

@@ -27,3 +27,8 @@ async fn topology2_1() {
 async fn labeled_unicast_1() {
     run_test_topology::<Instance>("lu-1", "rt1").await;
 }
+
+#[tokio::test]
+async fn route_reflector_1() {
+    run_test_topology::<Instance>("rr-1", "rt1").await;
+}

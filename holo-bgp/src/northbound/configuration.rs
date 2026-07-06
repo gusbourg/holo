@@ -1699,7 +1699,10 @@ impl Provider for Instance {
                     let nbr_trace_opts = &nbr.config.trace_opts;
                     let instance_trace_opts = &self.config.trace_opts;
 
-                    let disabled = TraceOptionPacketType { tx: false, rx: false };
+                    let disabled = TraceOptionPacketType {
+                        tx: false,
+                        rx: false,
+                    };
                     let open = nbr_trace_opts
                         .packets
                         .open
@@ -1825,7 +1828,10 @@ impl Default for DistanceCfg {
         let external = bgp::global::distance::external::DFLT;
         let internal = bgp::global::distance::internal::DFLT;
 
-        DistanceCfg { external, internal }
+        DistanceCfg {
+            external,
+            internal,
+        }
     }
 }
 
@@ -1970,7 +1976,10 @@ impl Default for AsPathOptions {
 
 impl Default for TraceOptionPacketResolved {
     fn default() -> TraceOptionPacketResolved {
-        let disabled = TraceOptionPacketType { tx: false, rx: false };
+        let disabled = TraceOptionPacketType {
+            tx: false,
+            rx: false,
+        };
         TraceOptionPacketResolved {
             open: disabled,
             update: disabled,
@@ -1986,6 +1995,9 @@ impl Default for TraceOptionPacketType {
         let tx = bgp::global::trace_options::flag::send::DFLT;
         let rx = bgp::global::trace_options::flag::receive::DFLT;
 
-        TraceOptionPacketType { tx, rx }
+        TraceOptionPacketType {
+            tx,
+            rx,
+        }
     }
 }

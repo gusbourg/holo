@@ -48,7 +48,9 @@ impl<'a> YangList<'a, Instance> for bgp::global::afi_safis::afi_safi::AfiSafi<'a
     }
 
     fn new(_instance: &'a Instance, afi_safi: &Self::ListEntry) -> Self {
-        Self { name: afi_safi.to_yang() }
+        Self {
+            name: afi_safi.to_yang(),
+        }
     }
 }
 
@@ -119,7 +121,9 @@ impl<'a> YangContainer<'a, Instance> for bgp::neighbors::neighbor::timers::Timer
     type ParentListEntry = &'a Neighbor;
 
     fn new(_instance: &'a Instance, nbr: &Self::ParentListEntry) -> Option<Self> {
-        Some(Self { negotiated_hold_time: nbr.holdtime_nego })
+        Some(Self {
+            negotiated_hold_time: nbr.holdtime_nego,
+        })
     }
 }
 
@@ -144,7 +148,10 @@ impl<'a> YangList<'a, Instance> for bgp::neighbors::neighbor::afi_safis::afi_saf
     }
 
     fn new(_instance: &'a Instance, (_, afi_safi): &Self::ListEntry) -> Self {
-        Self { name: afi_safi.to_yang(), active: None }
+        Self {
+            name: afi_safi.to_yang(),
+            active: None,
+        }
     }
 }
 
@@ -377,7 +384,9 @@ impl<'a> YangList<'a, Instance> for bgp::rib::attr_sets::attr_set::AttrSet {
     }
 
     fn new(_instance: &'a Instance, attr_set: &Self::ListEntry) -> Self {
-        Self { index: attr_set.index }
+        Self {
+            index: attr_set.index,
+        }
     }
 }
 
@@ -549,7 +558,9 @@ impl<'a> YangList<'a, Instance> for bgp::rib::afi_safis::afi_safi::AfiSafi<'a> {
     }
 
     fn new(_instance: &'a Instance, afi_safi: &Self::ListEntry) -> Self {
-        Self { name: afi_safi.to_yang() }
+        Self {
+            name: afi_safi.to_yang(),
+        }
     }
 }
 
@@ -620,7 +631,9 @@ impl<'a> YangList<'a, Instance> for bgp::rib::afi_safis::afi_safi::ipv4_unicast:
     }
 
     fn new(_instance: &'a Instance, nbr: &Self::ListEntry) -> Self {
-        Self { neighbor_address: nbr.remote_addr }
+        Self {
+            neighbor_address: nbr.remote_addr,
+        }
     }
 }
 
@@ -912,7 +925,9 @@ impl<'a> YangList<'a, Instance> for bgp::rib::afi_safis::afi_safi::ipv6_unicast:
     }
 
     fn new(_instance: &'a Instance, nbr: &Self::ListEntry) -> Self {
-        Self { neighbor_address: nbr.remote_addr }
+        Self {
+            neighbor_address: nbr.remote_addr,
+        }
     }
 }
 

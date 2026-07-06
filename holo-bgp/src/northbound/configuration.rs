@@ -1590,8 +1590,7 @@ impl Provider for Instance {
                         AfiSafi::Ipv6Unicast => {
                             redistribute_delete::<Ipv6Unicast>(&mut instance, protocol);
                         }
-                        AfiSafi::L3vpnIpv4Unicast
-                        | AfiSafi::L3vpnIpv6Unicast => {}
+                        AfiSafi::L3vpnIpv4Unicast | AfiSafi::L3vpnIpv6Unicast => {}
                     }
                 }
             }

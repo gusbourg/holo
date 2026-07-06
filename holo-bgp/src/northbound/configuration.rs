@@ -531,8 +531,7 @@ fn load_callbacks() -> Callbacks<Instance> {
             let afi_safi = instance.config.afi_safi.get_mut(&afi_safi).unwrap();
 
             let send = args.dnode.get_bool();
-            afi_safi.send_default_route =
-                (!args.dnode.is_default()).then_some(send);
+            afi_safi.send_default_route = (!args.dnode.is_default()).then_some(send);
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::DecisionProcess);
@@ -630,8 +629,7 @@ fn load_callbacks() -> Callbacks<Instance> {
             let afi_safi = instance.config.afi_safi.get_mut(&afi_safi).unwrap();
 
             let send = args.dnode.get_bool();
-            afi_safi.send_default_route =
-                (!args.dnode.is_default()).then_some(send);
+            afi_safi.send_default_route = (!args.dnode.is_default()).then_some(send);
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::DecisionProcess);
@@ -1349,8 +1347,7 @@ fn load_callbacks() -> Callbacks<Instance> {
             let afi_safi = nbr.config.afi_safi.get_mut(&afi_safi).unwrap();
 
             let send = args.dnode.get_bool();
-            afi_safi.send_default_route =
-                (!args.dnode.is_default()).then_some(send);
+            afi_safi.send_default_route = (!args.dnode.is_default()).then_some(send);
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::DecisionProcess);
@@ -1430,8 +1427,7 @@ fn load_callbacks() -> Callbacks<Instance> {
             let afi_safi = nbr.config.afi_safi.get_mut(&afi_safi).unwrap();
 
             let send = args.dnode.get_bool();
-            afi_safi.send_default_route =
-                (!args.dnode.is_default()).then_some(send);
+            afi_safi.send_default_route = (!args.dnode.is_default()).then_some(send);
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::DecisionProcess);
@@ -1652,9 +1648,7 @@ impl Provider for Instance {
                         AfiSafi::Ipv6Unicast => {
                             redistribute_delete::<Ipv6Unicast>(&mut instance, protocol);
                         }
-                        AfiSafi::L3vpnIpv4Unicast
-                        | AfiSafi::L3vpnIpv6Unicast
-                        | AfiSafi::L2vpnEvpn => {}
+                        AfiSafi::L3vpnIpv4Unicast | AfiSafi::L3vpnIpv6Unicast | AfiSafi::L2vpnEvpn => {}
                     }
                 }
             }

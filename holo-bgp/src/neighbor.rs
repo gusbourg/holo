@@ -955,7 +955,9 @@ impl Neighbor {
                     (*prefix, Box::new(route))
                 })
             })
-            .filter(|(prefix, route)| self.distribute_filter::<A>(*prefix, route))
+            .filter(|(prefix, route)| {
+                self.distribute_filter::<A>(*prefix, route)
+            })
             .collect::<Vec<_>>();
 
         // Advertise the best routes.
@@ -1181,7 +1183,8 @@ fn is_default_originate_route<A>(prefix: A::Prefix, route: &Route) -> bool
 where
     A: AddressFamily,
 {
-    if route.origin != RouteOrigin::Protocol(holo_utils::protocol::Protocol::BGP)
+    if route.origin
+        != RouteOrigin::Protocol(holo_utils::protocol::Protocol::BGP)
     {
         return false;
     }

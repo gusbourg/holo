@@ -1240,7 +1240,12 @@ pub fn decode_labeled_vpn_ipv6_prefix(
 pub(crate) fn encode_evpn_route(buf: &mut BytesMut, route: &EvpnRoute) {
     match route {
         EvpnRoute::MacIpAdvertisement(route) => {
-            let len = 8 + 10 + 4 + 1 + 6 + 1
+            let len = 8
+                + 10
+                + 4
+                + 1
+                + 6
+                + 1
                 + route.ip.map(|ip| ip.length()).unwrap_or_default()
                 + 3;
             buf.put_u8(2);
@@ -1267,7 +1272,8 @@ pub(crate) fn encode_evpn_route(buf: &mut BytesMut, route: &EvpnRoute) {
         EvpnRoute::IpPrefix(route) => {
             let prefix_len = route.prefix.prefix();
             let prefix_wire_len = prefix_wire_len(prefix_len);
-            let gw_len = route.gateway_ip.map(|ip| ip.length()).unwrap_or_default();
+            let gw_len =
+                route.gateway_ip.map(|ip| ip.length()).unwrap_or_default();
             let len = 8 + 10 + 4 + 1 + prefix_wire_len + gw_len + 3;
             buf.put_u8(5);
             buf.put_u8(len as u8);
@@ -1389,9 +1395,10 @@ fn decode_evpn_ip_prefix(
     let ethernet_tag_id = buf.try_get_u32()?;
     let prefix_len = buf.try_get_u8()?;
     let prefix_wire_len = prefix_wire_len(prefix_len);
-    let suffix_len = buf.remaining().checked_sub(3).ok_or(
-        UpdateMessageError::InvalidNetworkField,
-    )?;
+    let suffix_len = buf
+        .remaining()
+        .checked_sub(3)
+        .ok_or(UpdateMessageError::InvalidNetworkField)?;
     let (prefix, gateway_ip) = match suffix_len.checked_sub(prefix_wire_len) {
         Some(0) => (decode_evpn_ip_prefix_addr(buf, prefix_len, false)?, None),
         Some(Ipv4Addr::LENGTH) => {
@@ -1466,7 +1473,9 @@ fn decode_evpn_label(buf: &mut Bytes) -> Result<u32, UpdateMessageError> {
     Ok(label_entry >> 4)
 }
 
-fn decode_rd(buf: &mut Bytes) -> Result<RouteDistinguisher, UpdateMessageError> {
+fn decode_rd(
+    buf: &mut Bytes,
+) -> Result<RouteDistinguisher, UpdateMessageError> {
     let mut rd_bytes = [0; 8];
     buf.try_copy_to_slice(&mut rd_bytes)?;
     RouteDistinguisher::decode(rd_bytes)

@@ -1620,52 +1620,24 @@ impl Provider for Instance {
 
                 match (nbr_addr, afi_safi) {
                     (Some(nbr_addr), Some(AfiSafi::Ipv4Unicast)) => {
-                        events::reapply_nbr_import_policy::<Ipv4Unicast>(
-                            &mut instance,
-                            neighbors,
-                            nbr_addr,
-                        );
+                        events::reapply_nbr_import_policy::<Ipv4Unicast>(&mut instance, neighbors, nbr_addr);
                     }
                     (Some(nbr_addr), Some(AfiSafi::Ipv6Unicast)) => {
-                        events::reapply_nbr_import_policy::<Ipv6Unicast>(
-                            &mut instance,
-                            neighbors,
-                            nbr_addr,
-                        );
+                        events::reapply_nbr_import_policy::<Ipv6Unicast>(&mut instance, neighbors, nbr_addr);
                     }
                     (Some(nbr_addr), None) => {
-                        events::reapply_nbr_import_policy::<Ipv4Unicast>(
-                            &mut instance,
-                            neighbors,
-                            nbr_addr,
-                        );
-                        events::reapply_nbr_import_policy::<Ipv6Unicast>(
-                            &mut instance,
-                            neighbors,
-                            nbr_addr,
-                        );
+                        events::reapply_nbr_import_policy::<Ipv4Unicast>(&mut instance, neighbors, nbr_addr);
+                        events::reapply_nbr_import_policy::<Ipv6Unicast>(&mut instance, neighbors, nbr_addr);
                     }
                     (None, Some(AfiSafi::Ipv4Unicast)) => {
-                        events::reapply_import_policy_all::<Ipv4Unicast>(
-                            &mut instance,
-                            neighbors,
-                        );
+                        events::reapply_import_policy_all::<Ipv4Unicast>(&mut instance, neighbors);
                     }
                     (None, Some(AfiSafi::Ipv6Unicast)) => {
-                        events::reapply_import_policy_all::<Ipv6Unicast>(
-                            &mut instance,
-                            neighbors,
-                        );
+                        events::reapply_import_policy_all::<Ipv6Unicast>(&mut instance, neighbors);
                     }
                     (None, None) => {
-                        events::reapply_import_policy_all::<Ipv4Unicast>(
-                            &mut instance,
-                            neighbors,
-                        );
-                        events::reapply_import_policy_all::<Ipv6Unicast>(
-                            &mut instance,
-                            neighbors,
-                        );
+                        events::reapply_import_policy_all::<Ipv4Unicast>(&mut instance, neighbors);
+                        events::reapply_import_policy_all::<Ipv6Unicast>(&mut instance, neighbors);
                     }
                 }
             }

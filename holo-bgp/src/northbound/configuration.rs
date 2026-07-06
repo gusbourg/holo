@@ -24,12 +24,11 @@ use holo_yang::TryFromYang;
 use crate::af::{Ipv4Unicast, Ipv6Unicast};
 use crate::instance::{Instance, InstanceUpView};
 use crate::neighbor::{Neighbor, PeerType, fsm};
-use crate::network;
 use crate::northbound::yang_gen::bgp;
 use crate::packet::iana::{CeaseSubcode, ErrorCode};
 use crate::packet::message::{Message, NotificationMsg};
 use crate::rib::RouteOrigin;
-use crate::ibus;
+use crate::{ibus, network};
 
 #[derive(Debug, Default, EnumAsInner)]
 pub enum ListEntry {

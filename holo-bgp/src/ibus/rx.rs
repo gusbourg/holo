@@ -41,10 +41,9 @@ pub(crate) fn process_bfd_state_update(
         return;
     };
 
-    let Some(nbr) = neighbors
-        .values_mut()
-        .find(|nbr| nbr.bfd.as_ref().is_some_and(|bfd| bfd.sess_key == sess_key))
-    else {
+    let Some(nbr) = neighbors.values_mut().find(|nbr| {
+        nbr.bfd.as_ref().is_some_and(|bfd| bfd.sess_key == sess_key)
+    }) else {
         return;
     };
 
@@ -59,11 +58,7 @@ pub(crate) fn process_iface_update(
         return;
     };
 
-    instance
-        .state
-        .interfaces
-        .entry(msg.ifname)
-        .or_default();
+    instance.state.interfaces.entry(msg.ifname).or_default();
     update_bfd_sessions(&instance, neighbors);
 }
 

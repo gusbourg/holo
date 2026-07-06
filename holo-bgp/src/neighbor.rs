@@ -636,17 +636,14 @@ impl Neighbor {
 
     // Registers, updates, or unregisters the BFD session for this neighbor.
     pub(crate) fn bfd_update_session(&mut self, instance: &InstanceUpView<'_>) {
-        let Some(sess_key) =
-            self.bfd_session_key(&instance.state.interfaces)
+        let Some(sess_key) = self.bfd_session_key(&instance.state.interfaces)
         else {
             self.bfd_clear_session(instance);
             return;
         };
 
-        let needs_register = self
-            .bfd
-            .as_ref()
-            .is_none_or(|bfd| bfd.sess_key != sess_key);
+        let needs_register =
+            self.bfd.as_ref().is_none_or(|bfd| bfd.sess_key != sess_key);
         if !needs_register {
             return;
         }
@@ -682,11 +679,15 @@ impl Neighbor {
 
         match state {
             bfd::State::Down if self.state != fsm::State::Idle => {
-                let msg =
-                    NotificationMsg::new(ErrorCode::Cease, CeaseSubcode::BfdDown);
+                let msg = NotificationMsg::new(
+                    ErrorCode::Cease,
+                    CeaseSubcode::BfdDown,
+                );
                 self.fsm_event(instance, fsm::Event::Stop(Some(msg)));
             }
-            bfd::State::Up if self.config.enabled && self.state == fsm::State::Idle => {
+            bfd::State::Up
+                if self.config.enabled && self.state == fsm::State::Idle =>
+            {
                 self.fsm_event(instance, fsm::Event::Start);
             }
             _ => {}
@@ -737,14 +738,17 @@ impl Neighbor {
             && !self.config.transport.ebgp_multihop_enabled
         {
             let ifname = self.bfd_single_hop_ifname(interfaces)?;
-            return Some(bfd::SessionKey::new_ip_single_hop(ifname, self.remote_addr));
+            return Some(bfd::SessionKey::new_ip_single_hop(
+                ifname,
+                self.remote_addr,
+            ));
         }
 
-        let src = self
-            .config
-            .transport
-            .local_addr
-            .or_else(|| self.conn_info.as_ref().map(|conn_info| conn_info.local_addr))?;
+        let src = self.config.transport.local_addr.or_else(|| {
+            self.conn_info
+                .as_ref()
+                .map(|conn_info| conn_info.local_addr)
+        })?;
         Some(bfd::SessionKey::new_ip_multihop(src, self.remote_addr))
     }
 
@@ -756,15 +760,20 @@ impl Neighbor {
         interfaces
             .iter()
             .find(|(_, iface)| {
-                iface.addrs.iter().any(|addr| match (addr, self.remote_addr) {
-                    (ipnetwork::IpNetwork::V4(prefix), IpAddr::V4(addr)) => {
-                        prefix.contains(addr)
-                    }
-                    (ipnetwork::IpNetwork::V6(prefix), IpAddr::V6(addr)) => {
-                        prefix.contains(addr)
-                    }
-                    _ => false,
-                })
+                iface
+                    .addrs
+                    .iter()
+                    .any(|addr| match (addr, self.remote_addr) {
+                        (
+                            ipnetwork::IpNetwork::V4(prefix),
+                            IpAddr::V4(addr),
+                        ) => prefix.contains(addr),
+                        (
+                            ipnetwork::IpNetwork::V6(prefix),
+                            IpAddr::V6(addr),
+                        ) => prefix.contains(addr),
+                        _ => false,
+                    })
             })
             .map(|(ifname, _)| ifname.clone())
     }
@@ -1332,16 +1341,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ipnetwork::Ipv4Network;
+
+    use super::*;
 
     fn interfaces() -> BTreeMap<String, InterfaceState> {
         BTreeMap::from([(
             "eth0".to_owned(),
             InterfaceState {
                 addrs: BTreeSet::from([ipnetwork::IpNetwork::V4(
-                    Ipv4Network::new(Ipv4Addr::new(192, 0, 2, 1), 24)
-                        .unwrap(),
+                    Ipv4Network::new(Ipv4Addr::new(192, 0, 2, 1), 24).unwrap(),
                 )]),
             },
         )])
@@ -1372,7 +1381,8 @@ mod tests {
         let mut nbr =
             bfd_neighbor(Ipv4Addr::new(198, 51, 100, 2), PeerType::External);
         nbr.config.transport.ebgp_multihop_enabled = true;
-        nbr.config.transport.local_addr = Some(Ipv4Addr::new(192, 0, 2, 1).into());
+        nbr.config.transport.local_addr =
+            Some(Ipv4Addr::new(192, 0, 2, 1).into());
 
         assert_eq!(
             nbr.bfd_session_key(&interfaces()),
@@ -1385,7 +1395,8 @@ mod tests {
 
     #[test]
     fn bfd_ibgp_waits_until_source_address_is_known() {
-        let nbr = bfd_neighbor(Ipv4Addr::new(198, 51, 100, 2), PeerType::Internal);
+        let nbr =
+            bfd_neighbor(Ipv4Addr::new(198, 51, 100, 2), PeerType::Internal);
 
         assert_eq!(nbr.bfd_session_key(&interfaces()), None);
     }

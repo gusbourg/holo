@@ -702,7 +702,8 @@ where
     let max_paths = match best_route.route_type {
         RouteType::Internal => mpath_cfg.ibgp_max_paths,
         RouteType::External => mpath_cfg.ebgp_max_paths,
-    };
+    }
+    .max(1);
     let nexthops = dest
         .adj_rib
         .values()
@@ -1006,10 +1007,12 @@ mod tests {
     use super::*;
     use crate::af::{Ipv4Unicast, L2vpnEvpn};
     use crate::evpn;
-    use crate::packet::attribute::BaseAttrs;
-    use crate::packet::attribute::CommList;
+    use crate::packet::attribute::{
+        AsPath, AsPathSegment, AsPathSegmentType, BaseAttrs, CommList,
+    };
     use crate::packet::message::{EvpnMacIpAdvertisement, EvpnRoute};
     use holo_utils::socket::TcpConnInfo;
+    use std::collections::VecDeque;
 
     fn make_route(
         origin: RouteOrigin,
@@ -1201,6 +1204,98 @@ mod tests {
         );
     }
 
+    fn as_path(members: impl IntoIterator<Item = u32>) -> AsPath {
+        AsPath {
+            segments: VecDeque::from([AsPathSegment {
+                seg_type: AsPathSegmentType::Sequence,
+                members: members.into_iter().collect(),
+            }]),
+        }
+    }
+
+    fn ecmp_route(
+        remote_addr: Ipv4Addr,
+        nexthop: Ipv4Addr,
+        as_path_members: impl IntoIterator<Item = u32>,
+    ) -> Box<Route> {
+        let base_attrs = BaseAttrs {
+            as_path: as_path(as_path_members),
+            nexthop: Some(nexthop.into()),
+            med: Some(100),
+            local_pref: Some(DFLT_LOCAL_PREF),
+            ..Default::default()
+        };
+        let attrs = RouteAttrs {
+            base: Arc::new(AttrSet {
+                index: 0,
+                value: base_attrs,
+            }),
+            comm: None,
+            ext_comm: None,
+            extv6_comm: None,
+            large_comm: None,
+            unknown: None,
+        };
+        Box::new(Route {
+            origin: RouteOrigin::Neighbor {
+                identifier: remote_addr,
+                remote_addr: remote_addr.into(),
+            },
+            attrs,
+            route_type: RouteType::External,
+            vpn_label: None,
+            igp_cost: Some(10),
+            last_modified: Instant::now(),
+            ineligible_reason: None,
+            reject_reason: None,
+        })
+    }
+
+    fn add_in_post(
+        dest: &mut Destination,
+        remote_addr: Ipv4Addr,
+        route: Box<Route>,
+    ) {
+        dest.adj_rib
+            .entry(remote_addr.into())
+            .or_default()
+            .in_post = Some(route);
+    }
+
+    fn ecmp_destination() -> (Destination, Box<Route>) {
+        let mut dest = Destination::default();
+        let best = ecmp_route(
+            Ipv4Addr::new(192, 0, 2, 1),
+            Ipv4Addr::new(10, 0, 0, 1),
+            [65001],
+        );
+        add_in_post(
+            &mut dest,
+            Ipv4Addr::new(192, 0, 2, 1),
+            best.clone(),
+        );
+        add_in_post(
+            &mut dest,
+            Ipv4Addr::new(192, 0, 2, 2),
+            ecmp_route(
+                Ipv4Addr::new(192, 0, 2, 2),
+                Ipv4Addr::new(10, 0, 0, 2),
+                [65001],
+            ),
+        );
+        add_in_post(
+            &mut dest,
+            Ipv4Addr::new(192, 0, 2, 3),
+            ecmp_route(
+                Ipv4Addr::new(192, 0, 2, 3),
+                Ipv4Addr::new(10, 0, 0, 3),
+                [65001, 65002],
+            ),
+        );
+
+        (dest, best)
+    }
+
     #[test]
     fn compare_prefers_lower_igp_cost_some_some() {
         // Two iBGP routes identical except for IGP cost.
@@ -1342,6 +1437,59 @@ mod tests {
                 identifier: Ipv4Addr::new(192, 0, 2, 254),
                 remote_addr: high_peer,
             }
+        );
+    }
+
+    #[test]
+    fn multipath_groups_only_equal_cost_routes() {
+        let (dest, best) = ecmp_destination();
+        let selection_cfg = RouteSelectionCfg::default();
+        let mpath_cfg = MultipathCfg {
+            enabled: true,
+            ebgp_allow_multiple_as: false,
+            ebgp_max_paths: 8,
+            ibgp_max_paths: 1,
+        };
+
+        let nexthops = compute_nexthops::<Ipv4Unicast>(
+            &dest,
+            &best,
+            &selection_cfg,
+            &mpath_cfg,
+        )
+        .unwrap();
+
+        assert_eq!(
+            nexthops,
+            BTreeSet::from([
+                IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+                IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
+            ])
+        );
+    }
+
+    #[test]
+    fn multipath_max_paths_zero_preserves_single_path() {
+        let (dest, best) = ecmp_destination();
+        let selection_cfg = RouteSelectionCfg::default();
+        let mpath_cfg = MultipathCfg {
+            enabled: true,
+            ebgp_allow_multiple_as: false,
+            ebgp_max_paths: 0,
+            ibgp_max_paths: 0,
+        };
+
+        let nexthops = compute_nexthops::<Ipv4Unicast>(
+            &dest,
+            &best,
+            &selection_cfg,
+            &mpath_cfg,
+        )
+        .unwrap();
+
+        assert_eq!(
+            nexthops,
+            BTreeSet::from([IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))])
         );
     }
 }

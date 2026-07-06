@@ -335,3 +335,128 @@ fn netlink_label_stack(labels: &[Label]) -> Vec<MplsLabel> {
     }
     labels
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    use chrono::Utc;
+    use holo_utils::ibus::IbusClientId;
+    use holo_utils::southbound::{RouteOpaqueAttrs, RouteKind};
+    use netlink_packet_route::route::RouteVia;
+    use tokio::sync::mpsc;
+
+    use super::*;
+    use crate::rib::RouteFlags;
+
+    fn route(nexthops: BTreeSet<Nexthop>) -> Route {
+        Route::new(
+            Protocol::BGP,
+            IbusClientId::default(),
+            RouteKind::Unicast,
+            20,
+            0,
+            None,
+            RouteOpaqueAttrs::None,
+            nexthops,
+            Utc::now(),
+            RouteFlags::ACTIVE,
+        )
+    }
+
+    fn address_nexthop(
+        ifindex: u32,
+        addr: Ipv4Addr,
+        label: u32,
+    ) -> Nexthop {
+        Nexthop::Address {
+            ifindex,
+            addr: IpAddr::V4(addr),
+            labels: vec![Label::new(label)],
+        }
+    }
+
+    fn install_mpls_route(route: &Route) -> RouteMessage {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        mpls_route_install(
+            &tx,
+            Label::new(100),
+            route,
+            &Interfaces::default(),
+        );
+        match rx.try_recv().unwrap() {
+            NetlinkRequest::RouteAdd(msg) => msg,
+            NetlinkRequest::RouteDel(_) => panic!("unexpected route delete"),
+        }
+    }
+
+    #[test]
+    fn mpls_single_nexthop_uses_top_level_attrs() {
+        let route = route(BTreeSet::from([address_nexthop(
+            10,
+            Ipv4Addr::new(192, 0, 2, 1),
+            200,
+        )]));
+
+        let msg = install_mpls_route(&route);
+
+        assert!(msg
+            .attributes
+            .iter()
+            .any(|attr| matches!(attr, RouteAttribute::Oif(10))));
+        assert!(msg.attributes.iter().any(|attr| matches!(
+            attr,
+            RouteAttribute::Via(RouteVia::Inet(addr))
+                if *addr == Ipv4Addr::new(192, 0, 2, 1)
+        )));
+        assert!(msg.attributes.iter().any(|attr| matches!(
+            attr,
+            RouteAttribute::NewDestination(labels)
+                if labels.iter().map(|label| label.label).collect::<Vec<_>>() == vec![200]
+        )));
+        assert!(!msg
+            .attributes
+            .iter()
+            .any(|attr| matches!(attr, RouteAttribute::MultiPath(_))));
+    }
+
+    #[test]
+    fn mpls_multipath_keeps_labels_per_nexthop() {
+        let route = route(BTreeSet::from([
+            address_nexthop(10, Ipv4Addr::new(192, 0, 2, 1), 200),
+            address_nexthop(20, Ipv4Addr::new(192, 0, 2, 2), 300),
+        ]));
+
+        let msg = install_mpls_route(&route);
+        let multipath = msg
+            .attributes
+            .iter()
+            .find_map(|attr| {
+                if let RouteAttribute::MultiPath(nexthops) = attr {
+                    Some(nexthops)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+
+        assert_eq!(multipath.len(), 2);
+        assert_eq!(multipath[0].interface_index, 10);
+        assert_eq!(multipath[1].interface_index, 20);
+        for (nexthop, addr, label) in [
+            (&multipath[0], Ipv4Addr::new(192, 0, 2, 1), 200),
+            (&multipath[1], Ipv4Addr::new(192, 0, 2, 2), 300),
+        ] {
+            assert!(nexthop.attributes.iter().any(|attr| matches!(
+                attr,
+                RouteAttribute::Via(RouteVia::Inet(nh_addr)) if *nh_addr == addr
+            )));
+            assert!(nexthop.attributes.iter().any(|attr| matches!(
+                attr,
+                RouteAttribute::NewDestination(labels)
+                    if labels.iter().map(|label| label.label).collect::<Vec<_>>() == vec![label]
+            )));
+        }
+    }
+}

@@ -24,7 +24,6 @@ use crate::af::{
 };
 use crate::debug::Debug;
 use crate::error::{Error, IoError, NbrRxError};
-use crate::evpn;
 use crate::instance::{InstanceState, InstanceUpView, PolicyApplyTasks};
 use crate::neighbor::{Neighbor, Neighbors, PeerType, fsm};
 use crate::packet::attribute::Attrs;
@@ -36,7 +35,7 @@ use crate::packet::message::{
 use crate::policy::RoutePolicyInfo;
 use crate::rib::{AttrSetsCxt, Rib, Route, RouteOrigin, RoutingTable};
 use crate::tasks::messages::output::PolicyApplyMsg;
-use crate::{network, rib};
+use crate::{evpn, network, rib};
 
 // ===== TCP connection request =====
 
@@ -134,7 +133,10 @@ pub(crate) fn process_nbr_msg(
                                 ErrorCode::Cease,
                                 CeaseSubcode::MaximumNumberofPrefixesReached,
                             );
-                            nbr.fsm_event(instance, fsm::Event::Stop(Some(msg)));
+                            nbr.fsm_event(
+                                instance,
+                                fsm::Event::Stop(Some(msg)),
+                            );
                         }
                     }
                 }
@@ -494,7 +496,11 @@ where
     }
 
     let table = A::table(&mut rib.tables);
-    if prefix_limit_exceeded(nbr, table, nlri_prefixes.iter().map(|(prefix, _)| prefix)) {
+    if prefix_limit_exceeded(
+        nbr,
+        table,
+        nlri_prefixes.iter().map(|(prefix, _)| prefix),
+    ) {
         return true;
     }
 

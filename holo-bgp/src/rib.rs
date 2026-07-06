@@ -1057,6 +1057,10 @@ pub(crate) fn nexthop_untrack<A>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+
+    use holo_utils::socket::TcpConnInfo;
+
     use super::*;
     use crate::af::{Ipv4Unicast, L2vpnEvpn};
     use crate::evpn;
@@ -1064,8 +1068,6 @@ mod tests {
         AsPath, AsPathSegment, AsPathSegmentType, BaseAttrs, CommList,
     };
     use crate::packet::message::{EvpnMacIpAdvertisement, EvpnRoute};
-    use holo_utils::socket::TcpConnInfo;
-    use std::collections::VecDeque;
 
     fn make_route(
         origin: RouteOrigin,
@@ -1310,10 +1312,8 @@ mod tests {
         remote_addr: Ipv4Addr,
         route: Box<Route>,
     ) {
-        dest.adj_rib
-            .entry(remote_addr.into())
-            .or_default()
-            .in_post = Some(route);
+        dest.adj_rib.entry(remote_addr.into()).or_default().in_post =
+            Some(route);
     }
 
     fn ecmp_destination() -> (Destination, Box<Route>) {
@@ -1323,11 +1323,7 @@ mod tests {
             Ipv4Addr::new(10, 0, 0, 1),
             [65001],
         );
-        add_in_post(
-            &mut dest,
-            Ipv4Addr::new(192, 0, 2, 1),
-            best.clone(),
-        );
+        add_in_post(&mut dest, Ipv4Addr::new(192, 0, 2, 1), best.clone());
         add_in_post(
             &mut dest,
             Ipv4Addr::new(192, 0, 2, 2),

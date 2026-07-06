@@ -759,9 +759,7 @@ impl AsPath {
         self.segments = std::mem::take(&mut self.segments)
             .into_iter()
             .filter_map(|mut segment| {
-                segment
-                    .members
-                    .retain(|asn| !is_private_asn(*asn));
+                segment.members.retain(|asn| !is_private_asn(*asn));
                 (!segment.members.is_empty()).then_some(segment)
             })
             .collect();
@@ -799,8 +797,7 @@ impl AsPath {
 }
 
 pub(crate) fn is_private_asn(asn: u32) -> bool {
-    (64512..=65534).contains(&asn)
-        || (4200000000..=4294967294).contains(&asn)
+    (64512..=65534).contains(&asn) || (4200000000..=4294967294).contains(&asn)
 }
 
 // ===== impl AsPathSegment =====

@@ -343,7 +343,7 @@ mod tests {
 
     use chrono::Utc;
     use holo_utils::ibus::IbusClientId;
-    use holo_utils::southbound::{RouteOpaqueAttrs, RouteKind};
+    use holo_utils::southbound::{RouteKind, RouteOpaqueAttrs};
     use netlink_packet_route::route::RouteVia;
     use tokio::sync::mpsc;
 
@@ -366,11 +366,7 @@ mod tests {
         )
     }
 
-    fn address_nexthop(
-        ifindex: u32,
-        addr: Ipv4Addr,
-        label: u32,
-    ) -> Nexthop {
+    fn address_nexthop(ifindex: u32, addr: Ipv4Addr, label: u32) -> Nexthop {
         Nexthop::Address {
             ifindex,
             addr: IpAddr::V4(addr),
@@ -380,12 +376,7 @@ mod tests {
 
     fn install_mpls_route(route: &Route) -> RouteMessage {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        mpls_route_install(
-            &tx,
-            Label::new(100),
-            route,
-            &Interfaces::default(),
-        );
+        mpls_route_install(&tx, Label::new(100), route, &Interfaces::default());
         match rx.try_recv().unwrap() {
             NetlinkRequest::RouteAdd(msg) => msg,
             NetlinkRequest::RouteDel(_) => panic!("unexpected route delete"),
@@ -402,10 +393,11 @@ mod tests {
 
         let msg = install_mpls_route(&route);
 
-        assert!(msg
-            .attributes
-            .iter()
-            .any(|attr| matches!(attr, RouteAttribute::Oif(10))));
+        assert!(
+            msg.attributes
+                .iter()
+                .any(|attr| matches!(attr, RouteAttribute::Oif(10)))
+        );
         assert!(msg.attributes.iter().any(|attr| matches!(
             attr,
             RouteAttribute::Via(RouteVia::Inet(addr))
@@ -416,10 +408,11 @@ mod tests {
             RouteAttribute::NewDestination(labels)
                 if labels.iter().map(|label| label.label).collect::<Vec<_>>() == vec![200]
         )));
-        assert!(!msg
-            .attributes
-            .iter()
-            .any(|attr| matches!(attr, RouteAttribute::MultiPath(_))));
+        assert!(
+            !msg.attributes
+                .iter()
+                .any(|attr| matches!(attr, RouteAttribute::MultiPath(_)))
+        );
     }
 
     #[test]

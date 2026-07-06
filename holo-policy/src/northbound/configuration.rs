@@ -13,9 +13,8 @@ use holo_northbound::configuration::{self, Callbacks, CallbacksBuilder, Provider
 use holo_utils::bgp::{self, Comm, ExtComm, Extv6Comm, LargeComm, Origin};
 use holo_utils::ip::AddressFamily;
 use holo_utils::policy::{
-    BgpAsPathSet, BgpCommunitySet, BgpEqOperator, BgpNexthop, BgpPolicyAction, BgpPolicyActionType, BgpPolicyCondition, BgpPolicyConditionType, BgpSetCommMethod, BgpSetCommOptions, BgpSetMed, CompiledRegex, IpPrefixRange, MatchSetRestrictedType, MatchSetType, MetricType, NeighborSet, Policy, PolicyAction,
-    PolicyActionType, PolicyCondition, PolicyConditionType, PolicyStmt, PrefixSet, RouteLevel, RouteType, TagSet,
-    bgp_as_path_regex_pattern,
+    BgpAsPathSet, BgpCommunitySet, BgpEqOperator, BgpNexthop, BgpPolicyAction, BgpPolicyActionType, BgpPolicyCondition, BgpPolicyConditionType, BgpSetCommMethod, BgpSetCommOptions, BgpSetMed, CompiledRegex, IpPrefixRange,
+    MatchSetRestrictedType, MatchSetType, MetricType, NeighborSet, Policy, PolicyAction, PolicyActionType, PolicyCondition, PolicyConditionType, PolicyStmt, PrefixSet, RouteLevel, RouteType, TagSet, bgp_as_path_regex_pattern,
 };
 use holo_utils::protocol::Protocol;
 use holo_utils::yang::DataNodeRefExt;
@@ -807,8 +806,7 @@ fn load_callbacks() -> Callbacks<Master> {
             let event_queue = args.event_queue;
             event_queue.insert(Event::PolicyChange(policy.name.clone()));
         })
-        .delete_apply(|_master, _args| {
-        })
+        .delete_apply(|_master, _args| {})
         // BGP condition: match-neighbor
         .path(routing_policy::policy_definitions::policy_definition::statements::statement::conditions::bgp_conditions::match_neighbor::neighbor_eq::PATH)
         .create_apply(|master, args| {
@@ -1007,8 +1005,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .modify_apply(|master, args| {
             bgp_match_set_options(master, args, BgpPolicyConditionType::MatchCommSet);
         })
-        .delete_apply(|_master, _args| {
-        })
+        .delete_apply(|_master, _args| {})
         .path(routing_policy::policy_definitions::policy_definition::statements::statement::conditions::bgp_conditions::match_ext_community_set::ext_community_set::PATH)
         .modify_apply(|master, args| {
             bgp_match_set_ref(
@@ -1032,8 +1029,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .modify_apply(|master, args| {
             bgp_match_set_options(master, args, BgpPolicyConditionType::MatchExtCommSet);
         })
-        .delete_apply(|_master, _args| {
-        })
+        .delete_apply(|_master, _args| {})
         .path(routing_policy::policy_definitions::policy_definition::statements::statement::conditions::bgp_conditions::match_ipv6_ext_community_set::ipv6_ext_community_set::PATH)
         .modify_apply(|master, args| {
             bgp_match_set_ref(
@@ -1057,8 +1053,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .modify_apply(|master, args| {
             bgp_match_set_options(master, args, BgpPolicyConditionType::MatchExtv6CommSet);
         })
-        .delete_apply(|_master, _args| {
-        })
+        .delete_apply(|_master, _args| {})
         .path(routing_policy::policy_definitions::policy_definition::statements::statement::conditions::bgp_conditions::match_large_community_set::large_community_set::PATH)
         .modify_apply(|master, args| {
             bgp_match_set_ref(
@@ -1078,8 +1073,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .modify_apply(|master, args| {
             bgp_match_set_options(master, args, BgpPolicyConditionType::MatchLargeCommSet);
         })
-        .delete_apply(|_master, _args| {
-        })
+        .delete_apply(|_master, _args| {})
         .path(routing_policy::policy_definitions::policy_definition::statements::statement::conditions::bgp_conditions::match_as_path_set::as_path_set::PATH)
         .modify_apply(|master, args| {
             bgp_match_set_ref(
@@ -1099,8 +1093,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .modify_apply(|master, args| {
             bgp_match_set_options(master, args, BgpPolicyConditionType::MatchAsPathSet);
         })
-        .delete_apply(|_master, _args| {
-        })
+        .delete_apply(|_master, _args| {})
         .path(routing_policy::policy_definitions::policy_definition::statements::statement::conditions::bgp_conditions::match_next_hop_set::next_hop_set::PATH)
         .modify_apply(|_master, _args| {
             // TODO: implement me!
@@ -1432,8 +1425,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .modify_apply(|master, args| {
             bgp_set_comm_options(master, args, BgpPolicyActionType::SetComm);
         })
-        .delete_apply(|_master, _args| {
-        })
+        .delete_apply(|_master, _args| {})
         .path(routing_policy::policy_definitions::policy_definition::statements::statement::actions::bgp_actions::set_community::communities::PATH)
         .create_apply(|master, args| {
             let comm = Comm::try_from_yang(&args.dnode.get_string()).unwrap();
@@ -1454,8 +1446,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .modify_apply(|master, args| {
             bgp_set_comm_options(master, args, BgpPolicyActionType::SetExtComm);
         })
-        .delete_apply(|_master, _args| {
-        })
+        .delete_apply(|_master, _args| {})
         .path(routing_policy::policy_definitions::policy_definition::statements::statement::actions::bgp_actions::set_ext_community::communities::PATH)
         .create_apply(|master, args| {
             let comm = ExtComm::try_from_yang(&args.dnode.get_string()).unwrap();
@@ -1476,8 +1467,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .modify_apply(|master, args| {
             bgp_set_comm_options(master, args, BgpPolicyActionType::SetExtv6Comm);
         })
-        .delete_apply(|_master, _args| {
-        })
+        .delete_apply(|_master, _args| {})
         .path(routing_policy::policy_definitions::policy_definition::statements::statement::actions::bgp_actions::set_ipv6_ext_community::communities::PATH)
         .create_apply(|master, args| {
             let comm = Extv6Comm::try_from_yang(&args.dnode.get_string()).unwrap();
@@ -1498,8 +1488,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .modify_apply(|master, args| {
             bgp_set_comm_options(master, args, BgpPolicyActionType::SetLargeComm);
         })
-        .delete_apply(|_master, _args| {
-        })
+        .delete_apply(|_master, _args| {})
         .path(routing_policy::policy_definitions::policy_definition::statements::statement::actions::bgp_actions::set_large_community::communities::PATH)
         .create_apply(|master, args| {
             let comm = LargeComm::try_from_yang(&args.dnode.get_string()).unwrap();
@@ -1610,10 +1599,7 @@ fn bgp_cond_set_op(master: &mut Master, args: configuration::CallbackArgs<'_, Ma
     event_queue.insert(Event::PolicyChange(policy.name.clone()));
 }
 
-fn bgp_match_set_type_get(
-    stmt: &PolicyStmt,
-    cond_type: BgpPolicyConditionType,
-) -> MatchSetType {
+fn bgp_match_set_type_get(stmt: &PolicyStmt, cond_type: BgpPolicyConditionType) -> MatchSetType {
     let key = PolicyConditionType::Bgp(cond_type);
     match stmt.conditions.get(&key) {
         Some(PolicyCondition::Bgp(
@@ -1637,12 +1623,7 @@ fn bgp_match_set_type_get(
     }
 }
 
-fn bgp_match_set_ref(
-    master: &mut Master,
-    args: configuration::CallbackArgs<'_, Master>,
-    cond_type: BgpPolicyConditionType,
-    mut condition: BgpPolicyCondition,
-) {
+fn bgp_match_set_ref(master: &mut Master, args: configuration::CallbackArgs<'_, Master>, cond_type: BgpPolicyConditionType, mut condition: BgpPolicyCondition) {
     let (policy_name, stmt_name) = args.list_entry.into_policy_stmt().unwrap();
     let policy = master.policies.get_mut(&policy_name).unwrap();
     let stmt = policy.stmts.get_mut(&stmt_name).unwrap();
@@ -1681,11 +1662,7 @@ fn bgp_match_set_ref(
     event_queue.insert(Event::PolicyChange(policy.name.clone()));
 }
 
-fn bgp_match_set_options(
-    master: &mut Master,
-    args: configuration::CallbackArgs<'_, Master>,
-    cond_type: BgpPolicyConditionType,
-) {
+fn bgp_match_set_options(master: &mut Master, args: configuration::CallbackArgs<'_, Master>, cond_type: BgpPolicyConditionType) {
     let (policy_name, stmt_name) = args.list_entry.into_policy_stmt().unwrap();
     let policy = master.policies.get_mut(&policy_name).unwrap();
     let stmt = policy.stmts.get_mut(&stmt_name).unwrap();
@@ -1718,11 +1695,7 @@ fn bgp_match_set_options(
     event_queue.insert(Event::PolicyChange(policy.name.clone()));
 }
 
-fn bgp_match_set_delete(
-    master: &mut Master,
-    args: configuration::CallbackArgs<'_, Master>,
-    cond_type: BgpPolicyConditionType,
-) {
+fn bgp_match_set_delete(master: &mut Master, args: configuration::CallbackArgs<'_, Master>, cond_type: BgpPolicyConditionType) {
     let (policy_name, stmt_name) = args.list_entry.into_policy_stmt().unwrap();
     let policy = master.policies.get_mut(&policy_name).unwrap();
     let stmt = policy.stmts.get_mut(&stmt_name).unwrap();
@@ -1749,11 +1722,8 @@ fn as_path_set_member_remove(set: &mut BgpAsPathSet, value: &str) {
     }
 }
 
-fn comm_set_member_add<T>(
-    set: &mut BgpCommunitySet<T>,
-    value: &str,
-    parse: impl Fn(&str) -> Option<T>,
-) where
+fn comm_set_member_add<T>(set: &mut BgpCommunitySet<T>, value: &str, parse: impl Fn(&str) -> Option<T>)
+where
     T: Eq + Ord + PartialEq + PartialOrd,
 {
     if let Some(comm) = parse(value) {
@@ -1763,11 +1733,8 @@ fn comm_set_member_add<T>(
     }
 }
 
-fn comm_set_member_remove<T>(
-    set: &mut BgpCommunitySet<T>,
-    value: &str,
-    parse: impl Fn(&str) -> Option<T>,
-) where
+fn comm_set_member_remove<T>(set: &mut BgpCommunitySet<T>, value: &str, parse: impl Fn(&str) -> Option<T>)
+where
     T: Eq + Ord + PartialEq + PartialOrd,
 {
     if let Some(comm) = parse(value) {
@@ -1777,38 +1744,30 @@ fn comm_set_member_remove<T>(
     }
 }
 
-trait BgpCommValue:
-    Clone + Eq + Ord + PartialEq + PartialOrd
-{
+trait BgpCommValue: Clone + Eq + Ord + PartialEq + PartialOrd {
     const ACTION_TYPE: BgpPolicyActionType;
 
-    fn make_action(
-        options: BgpSetCommOptions,
-        method: BgpSetCommMethod<Self>,
-    ) -> PolicyAction;
+    fn make_action(options: BgpSetCommOptions, method: BgpSetCommMethod<Self>) -> PolicyAction;
 
-    fn action_mut(
-        action: &mut PolicyAction,
-    ) -> Option<(&mut BgpSetCommOptions, &mut BgpSetCommMethod<Self>)>;
+    fn action_mut(action: &mut PolicyAction) -> Option<(&mut BgpSetCommOptions, &mut BgpSetCommMethod<Self>)>;
 }
 
 impl BgpCommValue for Comm {
     const ACTION_TYPE: BgpPolicyActionType = BgpPolicyActionType::SetComm;
 
-    fn make_action(
-        options: BgpSetCommOptions,
-        method: BgpSetCommMethod<Self>,
-    ) -> PolicyAction {
-        PolicyAction::Bgp(BgpPolicyAction::SetComm { options, method })
+    fn make_action(options: BgpSetCommOptions, method: BgpSetCommMethod<Self>) -> PolicyAction {
+        PolicyAction::Bgp(BgpPolicyAction::SetComm {
+            options,
+            method,
+        })
     }
 
-    fn action_mut(
-        action: &mut PolicyAction,
-    ) -> Option<(&mut BgpSetCommOptions, &mut BgpSetCommMethod<Self>)> {
+    fn action_mut(action: &mut PolicyAction) -> Option<(&mut BgpSetCommOptions, &mut BgpSetCommMethod<Self>)> {
         match action {
-            PolicyAction::Bgp(BgpPolicyAction::SetComm { options, method }) => {
-                Some((options, method))
-            }
+            PolicyAction::Bgp(BgpPolicyAction::SetComm {
+                options,
+                method,
+            }) => Some((options, method)),
             _ => None,
         }
     }
@@ -1817,20 +1776,19 @@ impl BgpCommValue for Comm {
 impl BgpCommValue for ExtComm {
     const ACTION_TYPE: BgpPolicyActionType = BgpPolicyActionType::SetExtComm;
 
-    fn make_action(
-        options: BgpSetCommOptions,
-        method: BgpSetCommMethod<Self>,
-    ) -> PolicyAction {
-        PolicyAction::Bgp(BgpPolicyAction::SetExtComm { options, method })
+    fn make_action(options: BgpSetCommOptions, method: BgpSetCommMethod<Self>) -> PolicyAction {
+        PolicyAction::Bgp(BgpPolicyAction::SetExtComm {
+            options,
+            method,
+        })
     }
 
-    fn action_mut(
-        action: &mut PolicyAction,
-    ) -> Option<(&mut BgpSetCommOptions, &mut BgpSetCommMethod<Self>)> {
+    fn action_mut(action: &mut PolicyAction) -> Option<(&mut BgpSetCommOptions, &mut BgpSetCommMethod<Self>)> {
         match action {
-            PolicyAction::Bgp(BgpPolicyAction::SetExtComm { options, method }) => {
-                Some((options, method))
-            }
+            PolicyAction::Bgp(BgpPolicyAction::SetExtComm {
+                options,
+                method,
+            }) => Some((options, method)),
             _ => None,
         }
     }
@@ -1839,20 +1797,19 @@ impl BgpCommValue for ExtComm {
 impl BgpCommValue for Extv6Comm {
     const ACTION_TYPE: BgpPolicyActionType = BgpPolicyActionType::SetExtv6Comm;
 
-    fn make_action(
-        options: BgpSetCommOptions,
-        method: BgpSetCommMethod<Self>,
-    ) -> PolicyAction {
-        PolicyAction::Bgp(BgpPolicyAction::SetExtv6Comm { options, method })
+    fn make_action(options: BgpSetCommOptions, method: BgpSetCommMethod<Self>) -> PolicyAction {
+        PolicyAction::Bgp(BgpPolicyAction::SetExtv6Comm {
+            options,
+            method,
+        })
     }
 
-    fn action_mut(
-        action: &mut PolicyAction,
-    ) -> Option<(&mut BgpSetCommOptions, &mut BgpSetCommMethod<Self>)> {
+    fn action_mut(action: &mut PolicyAction) -> Option<(&mut BgpSetCommOptions, &mut BgpSetCommMethod<Self>)> {
         match action {
-            PolicyAction::Bgp(BgpPolicyAction::SetExtv6Comm { options, method }) => {
-                Some((options, method))
-            }
+            PolicyAction::Bgp(BgpPolicyAction::SetExtv6Comm {
+                options,
+                method,
+            }) => Some((options, method)),
             _ => None,
         }
     }
@@ -1861,49 +1818,36 @@ impl BgpCommValue for Extv6Comm {
 impl BgpCommValue for LargeComm {
     const ACTION_TYPE: BgpPolicyActionType = BgpPolicyActionType::SetLargeComm;
 
-    fn make_action(
-        options: BgpSetCommOptions,
-        method: BgpSetCommMethod<Self>,
-    ) -> PolicyAction {
-        PolicyAction::Bgp(BgpPolicyAction::SetLargeComm { options, method })
+    fn make_action(options: BgpSetCommOptions, method: BgpSetCommMethod<Self>) -> PolicyAction {
+        PolicyAction::Bgp(BgpPolicyAction::SetLargeComm {
+            options,
+            method,
+        })
     }
 
-    fn action_mut(
-        action: &mut PolicyAction,
-    ) -> Option<(&mut BgpSetCommOptions, &mut BgpSetCommMethod<Self>)> {
+    fn action_mut(action: &mut PolicyAction) -> Option<(&mut BgpSetCommOptions, &mut BgpSetCommMethod<Self>)> {
         match action {
-            PolicyAction::Bgp(BgpPolicyAction::SetLargeComm { options, method }) => {
-                Some((options, method))
-            }
+            PolicyAction::Bgp(BgpPolicyAction::SetLargeComm {
+                options,
+                method,
+            }) => Some((options, method)),
             _ => None,
         }
     }
 }
 
-fn bgp_set_comm_options(
-    master: &mut Master,
-    args: configuration::CallbackArgs<'_, Master>,
-    action_type: BgpPolicyActionType,
-) {
+fn bgp_set_comm_options(master: &mut Master, args: configuration::CallbackArgs<'_, Master>, action_type: BgpPolicyActionType) {
     match action_type {
         BgpPolicyActionType::SetComm => bgp_set_comm_options_t::<Comm>(master, args),
-        BgpPolicyActionType::SetExtComm => {
-            bgp_set_comm_options_t::<ExtComm>(master, args)
-        }
-        BgpPolicyActionType::SetExtv6Comm => {
-            bgp_set_comm_options_t::<Extv6Comm>(master, args)
-        }
-        BgpPolicyActionType::SetLargeComm => {
-            bgp_set_comm_options_t::<LargeComm>(master, args)
-        }
+        BgpPolicyActionType::SetExtComm => bgp_set_comm_options_t::<ExtComm>(master, args),
+        BgpPolicyActionType::SetExtv6Comm => bgp_set_comm_options_t::<Extv6Comm>(master, args),
+        BgpPolicyActionType::SetLargeComm => bgp_set_comm_options_t::<LargeComm>(master, args),
         _ => unreachable!(),
     }
 }
 
-fn bgp_set_comm_options_t<T>(
-    master: &mut Master,
-    args: configuration::CallbackArgs<'_, Master>,
-) where
+fn bgp_set_comm_options_t<T>(master: &mut Master, args: configuration::CallbackArgs<'_, Master>)
+where
     T: BgpCommValue,
 {
     let (policy_name, stmt_name) = args.list_entry.into_policy_stmt().unwrap();
@@ -1914,22 +1858,15 @@ fn bgp_set_comm_options_t<T>(
     let key = PolicyActionType::Bgp(T::ACTION_TYPE);
     match stmt.actions.get_mut(&key).and_then(T::action_mut) {
         Some((existing, _)) => *existing = options,
-        None => stmt.action_add(T::make_action(
-            options,
-            BgpSetCommMethod::Inline(Default::default()),
-        )),
+        None => stmt.action_add(T::make_action(options, BgpSetCommMethod::Inline(Default::default()))),
     }
 
     let event_queue = args.event_queue;
     event_queue.insert(Event::PolicyChange(policy.name.clone()));
 }
 
-fn bgp_set_comm_inline_add<T>(
-    master: &mut Master,
-    args: configuration::CallbackArgs<'_, Master>,
-    comm: T,
-    _action_type: BgpPolicyActionType,
-) where
+fn bgp_set_comm_inline_add<T>(master: &mut Master, args: configuration::CallbackArgs<'_, Master>, comm: T, _action_type: BgpPolicyActionType)
+where
     T: BgpCommValue,
 {
     let (policy_name, stmt_name) = args.list_entry.into_policy_stmt().unwrap();
@@ -1944,22 +1881,15 @@ fn bgp_set_comm_inline_add<T>(
         Some((_, method)) => {
             *method = BgpSetCommMethod::Inline(BTreeSet::from([comm]));
         }
-        None => stmt.action_add(T::make_action(
-            BgpSetCommOptions::Add,
-            BgpSetCommMethod::Inline(BTreeSet::from([comm])),
-        )),
+        None => stmt.action_add(T::make_action(BgpSetCommOptions::Add, BgpSetCommMethod::Inline(BTreeSet::from([comm])))),
     }
 
     let event_queue = args.event_queue;
     event_queue.insert(Event::PolicyChange(policy.name.clone()));
 }
 
-fn bgp_set_comm_inline_remove<T>(
-    master: &mut Master,
-    args: configuration::CallbackArgs<'_, Master>,
-    comm: T,
-    _action_type: BgpPolicyActionType,
-) where
+fn bgp_set_comm_inline_remove<T>(master: &mut Master, args: configuration::CallbackArgs<'_, Master>, comm: T, _action_type: BgpPolicyActionType)
+where
     T: BgpCommValue,
 {
     let (policy_name, stmt_name) = args.list_entry.into_policy_stmt().unwrap();
@@ -1967,9 +1897,7 @@ fn bgp_set_comm_inline_remove<T>(
     let stmt = policy.stmts.get_mut(&stmt_name).unwrap();
     let key = PolicyActionType::Bgp(T::ACTION_TYPE);
 
-    if let Some((_, BgpSetCommMethod::Inline(comms))) =
-        stmt.actions.get_mut(&key).and_then(T::action_mut)
-    {
+    if let Some((_, BgpSetCommMethod::Inline(comms))) = stmt.actions.get_mut(&key).and_then(T::action_mut) {
         comms.remove(&comm);
     }
 
@@ -1977,30 +1905,18 @@ fn bgp_set_comm_inline_remove<T>(
     event_queue.insert(Event::PolicyChange(policy.name.clone()));
 }
 
-fn bgp_set_comm_reference(
-    master: &mut Master,
-    args: configuration::CallbackArgs<'_, Master>,
-    action_type: BgpPolicyActionType,
-) {
+fn bgp_set_comm_reference(master: &mut Master, args: configuration::CallbackArgs<'_, Master>, action_type: BgpPolicyActionType) {
     match action_type {
         BgpPolicyActionType::SetComm => bgp_set_comm_reference_t::<Comm>(master, args),
-        BgpPolicyActionType::SetExtComm => {
-            bgp_set_comm_reference_t::<ExtComm>(master, args)
-        }
-        BgpPolicyActionType::SetExtv6Comm => {
-            bgp_set_comm_reference_t::<Extv6Comm>(master, args)
-        }
-        BgpPolicyActionType::SetLargeComm => {
-            bgp_set_comm_reference_t::<LargeComm>(master, args)
-        }
+        BgpPolicyActionType::SetExtComm => bgp_set_comm_reference_t::<ExtComm>(master, args),
+        BgpPolicyActionType::SetExtv6Comm => bgp_set_comm_reference_t::<Extv6Comm>(master, args),
+        BgpPolicyActionType::SetLargeComm => bgp_set_comm_reference_t::<LargeComm>(master, args),
         _ => unreachable!(),
     }
 }
 
-fn bgp_set_comm_reference_t<T>(
-    master: &mut Master,
-    args: configuration::CallbackArgs<'_, Master>,
-) where
+fn bgp_set_comm_reference_t<T>(master: &mut Master, args: configuration::CallbackArgs<'_, Master>)
+where
     T: BgpCommValue,
 {
     let (policy_name, stmt_name) = args.list_entry.into_policy_stmt().unwrap();
@@ -2009,26 +1925,14 @@ fn bgp_set_comm_reference_t<T>(
 
     let set_name = args.dnode.get_string();
     let key = PolicyActionType::Bgp(T::ACTION_TYPE);
-    let options = stmt
-        .actions
-        .get_mut(&key)
-        .and_then(T::action_mut)
-        .map(|(options, _)| *options)
-        .unwrap_or(BgpSetCommOptions::Add);
-    stmt.action_add(T::make_action(
-        options,
-        BgpSetCommMethod::Reference(set_name),
-    ));
+    let options = stmt.actions.get_mut(&key).and_then(T::action_mut).map(|(options, _)| *options).unwrap_or(BgpSetCommOptions::Add);
+    stmt.action_add(T::make_action(options, BgpSetCommMethod::Reference(set_name)));
 
     let event_queue = args.event_queue;
     event_queue.insert(Event::PolicyChange(policy.name.clone()));
 }
 
-fn bgp_set_comm_delete(
-    master: &mut Master,
-    args: configuration::CallbackArgs<'_, Master>,
-    action_type: BgpPolicyActionType,
-) {
+fn bgp_set_comm_delete(master: &mut Master, args: configuration::CallbackArgs<'_, Master>, action_type: BgpPolicyActionType) {
     let (policy_name, stmt_name) = args.list_entry.into_policy_stmt().unwrap();
     let policy = master.policies.get_mut(&policy_name).unwrap();
     let stmt = policy.stmts.get_mut(&stmt_name).unwrap();

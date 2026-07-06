@@ -565,8 +565,7 @@ fn load_callbacks() -> Callbacks<Instance> {
             let afi_safi = instance.config.afi_safi.get_mut(&afi_safi).unwrap();
 
             let send = args.dnode.get_bool();
-            afi_safi.send_default_route =
-                (!args.dnode.is_default()).then_some(send);
+            afi_safi.send_default_route = (!args.dnode.is_default()).then_some(send);
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::DecisionProcess);
@@ -664,8 +663,7 @@ fn load_callbacks() -> Callbacks<Instance> {
             let afi_safi = instance.config.afi_safi.get_mut(&afi_safi).unwrap();
 
             let send = args.dnode.get_bool();
-            afi_safi.send_default_route =
-                (!args.dnode.is_default()).then_some(send);
+            afi_safi.send_default_route = (!args.dnode.is_default()).then_some(send);
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::DecisionProcess);
@@ -958,8 +956,7 @@ fn load_callbacks() -> Callbacks<Instance> {
             let nbr_addr = args.list_entry.into_neighbor().unwrap();
             let nbr = instance.neighbors.get_mut(&nbr_addr).unwrap();
 
-            nbr.config.route_reflector.client =
-                bgp::neighbors::neighbor::route_reflector::client::DFLT;
+            nbr.config.route_reflector.client = bgp::neighbors::neighbor::route_reflector::client::DFLT;
 
             schedule_decision_process_all_afs(instance);
         })
@@ -969,9 +966,7 @@ fn load_callbacks() -> Callbacks<Instance> {
             let nbr = instance.neighbors.get_mut(&nbr_addr).unwrap();
 
             let cluster_id = args.dnode.get_string();
-            let cluster_id = cluster_id
-                .parse::<Ipv4Addr>()
-                .unwrap_or_else(|_| Ipv4Addr::from(cluster_id.parse::<u32>().unwrap()));
+            let cluster_id = cluster_id.parse::<Ipv4Addr>().unwrap_or_else(|_| Ipv4Addr::from(cluster_id.parse::<u32>().unwrap()));
             nbr.config.route_reflector.cluster_id = Some(cluster_id);
 
             schedule_decision_process_all_afs(instance);
@@ -1477,8 +1472,7 @@ fn load_callbacks() -> Callbacks<Instance> {
             let afi_safi = nbr.config.afi_safi.get_mut(&afi_safi).unwrap();
 
             let send = args.dnode.get_bool();
-            afi_safi.send_default_route =
-                (!args.dnode.is_default()).then_some(send);
+            afi_safi.send_default_route = (!args.dnode.is_default()).then_some(send);
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::DecisionProcess);
@@ -1558,8 +1552,7 @@ fn load_callbacks() -> Callbacks<Instance> {
             let afi_safi = nbr.config.afi_safi.get_mut(&afi_safi).unwrap();
 
             let send = args.dnode.get_bool();
-            afi_safi.send_default_route =
-                (!args.dnode.is_default()).then_some(send);
+            afi_safi.send_default_route = (!args.dnode.is_default()).then_some(send);
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::DecisionProcess);
@@ -1792,98 +1785,42 @@ impl Provider for Instance {
 
                 match (nbr_addr, afi_safi) {
                     (Some(nbr_addr), Some(AfiSafi::Ipv4Unicast)) => {
-                        events::reapply_nbr_import_policy::<Ipv4Unicast>(
-                            &mut instance,
-                            neighbors,
-                            nbr_addr,
-                        );
+                        events::reapply_nbr_import_policy::<Ipv4Unicast>(&mut instance, neighbors, nbr_addr);
                     }
                     (Some(nbr_addr), Some(AfiSafi::Ipv6Unicast)) => {
-                        events::reapply_nbr_import_policy::<Ipv6Unicast>(
-                            &mut instance,
-                            neighbors,
-                            nbr_addr,
-                        );
+                        events::reapply_nbr_import_policy::<Ipv6Unicast>(&mut instance, neighbors, nbr_addr);
                     }
                     (Some(nbr_addr), Some(AfiSafi::L3vpnIpv4Unicast)) => {
-                        events::reapply_nbr_import_policy::<Vpnv4Unicast>(
-                            &mut instance,
-                            neighbors,
-                            nbr_addr,
-                        );
+                        events::reapply_nbr_import_policy::<Vpnv4Unicast>(&mut instance, neighbors, nbr_addr);
                     }
                     (Some(nbr_addr), Some(AfiSafi::L3vpnIpv6Unicast)) => {
-                        events::reapply_nbr_import_policy::<Vpnv6Unicast>(
-                            &mut instance,
-                            neighbors,
-                            nbr_addr,
-                        );
+                        events::reapply_nbr_import_policy::<Vpnv6Unicast>(&mut instance, neighbors, nbr_addr);
                     }
                     (Some(_), Some(AfiSafi::L2vpnEvpn)) => {}
                     (Some(nbr_addr), None) => {
-                        events::reapply_nbr_import_policy::<Ipv4Unicast>(
-                            &mut instance,
-                            neighbors,
-                            nbr_addr,
-                        );
-                        events::reapply_nbr_import_policy::<Ipv6Unicast>(
-                            &mut instance,
-                            neighbors,
-                            nbr_addr,
-                        );
-                        events::reapply_nbr_import_policy::<Vpnv4Unicast>(
-                            &mut instance,
-                            neighbors,
-                            nbr_addr,
-                        );
-                        events::reapply_nbr_import_policy::<Vpnv6Unicast>(
-                            &mut instance,
-                            neighbors,
-                            nbr_addr,
-                        );
+                        events::reapply_nbr_import_policy::<Ipv4Unicast>(&mut instance, neighbors, nbr_addr);
+                        events::reapply_nbr_import_policy::<Ipv6Unicast>(&mut instance, neighbors, nbr_addr);
+                        events::reapply_nbr_import_policy::<Vpnv4Unicast>(&mut instance, neighbors, nbr_addr);
+                        events::reapply_nbr_import_policy::<Vpnv6Unicast>(&mut instance, neighbors, nbr_addr);
                     }
                     (None, Some(AfiSafi::Ipv4Unicast)) => {
-                        events::reapply_import_policy_all::<Ipv4Unicast>(
-                            &mut instance,
-                            neighbors,
-                        );
+                        events::reapply_import_policy_all::<Ipv4Unicast>(&mut instance, neighbors);
                     }
                     (None, Some(AfiSafi::Ipv6Unicast)) => {
-                        events::reapply_import_policy_all::<Ipv6Unicast>(
-                            &mut instance,
-                            neighbors,
-                        );
+                        events::reapply_import_policy_all::<Ipv6Unicast>(&mut instance, neighbors);
                     }
                     (None, Some(AfiSafi::L3vpnIpv4Unicast)) => {
-                        events::reapply_import_policy_all::<Vpnv4Unicast>(
-                            &mut instance,
-                            neighbors,
-                        );
+                        events::reapply_import_policy_all::<Vpnv4Unicast>(&mut instance, neighbors);
                     }
                     (None, Some(AfiSafi::L3vpnIpv6Unicast)) => {
-                        events::reapply_import_policy_all::<Vpnv6Unicast>(
-                            &mut instance,
-                            neighbors,
-                        );
+                        events::reapply_import_policy_all::<Vpnv6Unicast>(&mut instance, neighbors);
                     }
                     (None, Some(AfiSafi::L2vpnEvpn)) => {}
                     (None, None) => {
-                        events::reapply_import_policy_all::<Ipv4Unicast>(
-                            &mut instance,
-                            neighbors,
-                        );
-                        events::reapply_import_policy_all::<Ipv6Unicast>(
-                            &mut instance,
-                            neighbors,
-                        );
-                        events::reapply_import_policy_all::<Vpnv4Unicast>(
-                            &mut instance,
-                            neighbors,
-                        );
-                        events::reapply_import_policy_all::<Vpnv6Unicast>(
-                            &mut instance,
-                            neighbors,
-                        );
+                        events::reapply_import_policy_all::<Ipv4Unicast>(&mut instance, neighbors);
+                        events::reapply_import_policy_all::<Ipv6Unicast>(&mut instance, neighbors);
+                        events::reapply_import_policy_all::<Vpnv4Unicast>(&mut instance, neighbors);
+                        events::reapply_import_policy_all::<Vpnv6Unicast>(&mut instance, neighbors);
                     }
                 }
             }
@@ -1901,9 +1838,7 @@ impl Provider for Instance {
                         AfiSafi::Ipv6Unicast => {
                             redistribute_delete::<Ipv6Unicast>(&mut instance, protocol);
                         }
-                        AfiSafi::L3vpnIpv4Unicast
-                        | AfiSafi::L3vpnIpv6Unicast
-                        | AfiSafi::L2vpnEvpn => {}
+                        AfiSafi::L3vpnIpv4Unicast | AfiSafi::L3vpnIpv6Unicast | AfiSafi::L2vpnEvpn => {}
                     }
                 }
             }

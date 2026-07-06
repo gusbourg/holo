@@ -666,8 +666,8 @@ mod tests {
 
     use holo_utils::ip::AddressFamily;
     use holo_utils::policy::{
-        CompiledRegex, IpPrefixRange, Policy, PolicyAction,
-        PolicyCondition, PolicyStmt, bgp_as_path_regex_pattern,
+        CompiledRegex, IpPrefixRange, Policy, PolicyAction, PolicyCondition,
+        PolicyStmt, bgp_as_path_regex_pattern,
     };
 
     use super::*;

@@ -18,10 +18,7 @@ use holo_utils::ibus::IbusMsg;
 use holo_utils::ip::{AddressFamily, IpNetworkKind, JointPrefixMapExt};
 use holo_utils::mpls::{Label, LabelRange};
 use holo_utils::protocol::Protocol;
-use holo_utils::southbound::{
-    LabelInstallMsg, LabelUninstallMsg, Nexthop, RouteKeyMsg, RouteKind,
-    RouteMsg, RouteOpaqueAttrs,
-};
+use holo_utils::southbound::{LabelInstallMsg, LabelUninstallMsg, Nexthop, RouteKeyMsg, RouteKind, RouteMsg, RouteOpaqueAttrs};
 use holo_utils::sr::{IgpAlgoType, SidLastHopBehavior, SrCfgEvent, SrCfgPrefixSid};
 use holo_utils::yang::DataNodeRefExt;
 use holo_yang::TryFromYang;
@@ -32,10 +29,9 @@ use yang5::data::Data;
 
 use crate::interface::Interfaces;
 use crate::northbound::REGEX_PROTOCOLS;
-use crate::northbound::yang_gen::control_plane_protocol;
-use crate::northbound::yang_gen::network_instances;
 use crate::northbound::yang_gen::routing::segment_routing::sr_mpls;
 use crate::northbound::yang_gen::routing::{bier, ribs};
+use crate::northbound::yang_gen::{control_plane_protocol, network_instances};
 use crate::rib::{Route, RouteFlags, RouteKey};
 use crate::{InstanceHandle, InstanceId, Master};
 
@@ -150,7 +146,11 @@ fn load_callbacks() -> Callbacks<Master> {
             master.instance_ni.insert(base_id, network_instance.clone());
 
             let event_queue = args.event_queue;
-            event_queue.insert(Event::InstanceStart { protocol, name, network_instance });
+            event_queue.insert(Event::InstanceStart {
+                protocol,
+                name,
+                network_instance,
+            });
 
             Ok(())
         })
@@ -164,8 +164,7 @@ fn load_callbacks() -> Callbacks<Master> {
 
             // Remove protocol instance.
             remove_instance(master, &instance_id);
-            let base_id =
-                InstanceId::new(instance_id.protocol, instance_id.name);
+            let base_id = InstanceId::new(instance_id.protocol, instance_id.name);
             master.instance_ni.remove(&base_id);
         })
         .delete_apply(|master, args| {
@@ -178,8 +177,7 @@ fn load_callbacks() -> Callbacks<Master> {
 
             // Remove protocol instance.
             remove_instance(master, &instance_id);
-            let base_id =
-                InstanceId::new(instance_id.protocol, instance_id.name);
+            let base_id = InstanceId::new(instance_id.protocol, instance_id.name);
             master.instance_ni.remove(&base_id);
         })
         .lookup(|_instance, _list_entry, dnode| {
@@ -214,37 +212,20 @@ fn load_callbacks() -> Callbacks<Master> {
             let name = args.dnode.get_string_relative("name").unwrap();
             network_instance_create(master, name.clone());
             let ni = master.network_instances.get_mut(&name).unwrap();
-            if let Some(rd) = args
-                .dnode
-                .get_string_relative(
-                    "./holo-network-instance:l3vpn/route-distinguisher",
-                )
-                .and_then(|rd| RouteDistinguisher::try_from_yang(&rd))
-            {
+            if let Some(rd) = args.dnode.get_string_relative("./holo-network-instance:l3vpn/route-distinguisher").and_then(|rd| RouteDistinguisher::try_from_yang(&rd)) {
                 ni.rd = Some(rd);
             }
-            for dnode in args
-                .dnode
-                .find_xpath("./holo-network-instance:l3vpn/import-route-target")
-                .unwrap()
-            {
-                if let Some(rt) = RouteTarget::try_from_yang(&dnode.get_string())
-                {
+            for dnode in args.dnode.find_xpath("./holo-network-instance:l3vpn/import-route-target").unwrap() {
+                if let Some(rt) = RouteTarget::try_from_yang(&dnode.get_string()) {
                     ni.import_rts.insert(rt);
                 }
             }
-            for dnode in args
-                .dnode
-                .find_xpath("./holo-network-instance:l3vpn/export-route-target")
-                .unwrap()
-            {
-                if let Some(rt) = RouteTarget::try_from_yang(&dnode.get_string())
-                {
+            for dnode in args.dnode.find_xpath("./holo-network-instance:l3vpn/export-route-target").unwrap() {
+                if let Some(rt) = RouteTarget::try_from_yang(&dnode.get_string()) {
                     ni.export_rts.insert(rt);
                 }
             }
-            let ensure_export_label =
-                ni.rd.is_some() || !ni.export_rts.is_empty();
+            let ensure_export_label = ni.rd.is_some() || !ni.export_rts.is_empty();
             if ensure_export_label {
                 vpn_export_label_ensure(master, &name);
             }
@@ -316,10 +297,7 @@ fn load_callbacks() -> Callbacks<Master> {
             let name = args.list_entry.into_network_instance().unwrap();
             let rt = args.dnode.get_string();
             let rt = RouteTarget::try_from_yang(&rt).unwrap();
-            let rd = args
-                .dnode
-                .get_string_relative("../route-distinguisher")
-                .and_then(|rd| RouteDistinguisher::try_from_yang(&rd));
+            let rd = args.dnode.get_string_relative("../route-distinguisher").and_then(|rd| RouteDistinguisher::try_from_yang(&rd));
             vpn_export_label_ensure(master, &name);
             let ni = master.network_instances.get_mut(&name).unwrap();
             if ni.rd.is_none() {
@@ -340,7 +318,10 @@ fn load_callbacks() -> Callbacks<Master> {
         .create_apply(|master, args| {
             let prefix = args.dnode.get_prefix_relative("./destination-prefix").unwrap();
             let instance_id = args.list_entry.clone().into_protocol_instance().unwrap();
-            let route_key = StaticRouteKey { instance_id, prefix };
+            let route_key = StaticRouteKey {
+                instance_id,
+                prefix,
+            };
 
             master.static_routes.insert(route_key, StaticRoute::default());
         })
@@ -355,7 +336,10 @@ fn load_callbacks() -> Callbacks<Master> {
         .lookup(|_master, list_entry, dnode| {
             let prefix = dnode.get_prefix_relative("./destination-prefix").unwrap();
             let instance_id = list_entry.into_protocol_instance().unwrap();
-            ListEntry::StaticRoute(StaticRouteKey { instance_id, prefix })
+            ListEntry::StaticRoute(StaticRouteKey {
+                instance_id,
+                prefix,
+            })
         })
         .path(control_plane_protocol::static_routes::ipv4::route::description::PATH)
         .modify_apply(|_master, _args| {
@@ -499,7 +483,10 @@ fn load_callbacks() -> Callbacks<Master> {
         .create_apply(|master, args| {
             let prefix = args.dnode.get_prefix_relative("./destination-prefix").unwrap();
             let instance_id = args.list_entry.clone().into_protocol_instance().unwrap();
-            let route_key = StaticRouteKey { instance_id, prefix };
+            let route_key = StaticRouteKey {
+                instance_id,
+                prefix,
+            };
 
             master.static_routes.insert(route_key, StaticRoute::default());
         })
@@ -514,7 +501,10 @@ fn load_callbacks() -> Callbacks<Master> {
         .lookup(|_master, list_entry, dnode| {
             let prefix = dnode.get_prefix_relative("./destination-prefix").unwrap();
             let instance_id = list_entry.into_protocol_instance().unwrap();
-            ListEntry::StaticRoute(StaticRouteKey { instance_id, prefix })
+            ListEntry::StaticRoute(StaticRouteKey {
+                instance_id,
+                prefix,
+            })
         })
         .path(control_plane_protocol::static_routes::ipv6::route::description::PATH)
         .modify_apply(|_master, _args| {
@@ -1044,7 +1034,10 @@ fn load_callbacks() -> Callbacks<Master> {
         .create_apply(|master, args| {
             let bfr_id = args.dnode.get_u16_relative("./bfr-id").unwrap();
 
-            let bift_cfg = BierBiftCfg { bfr_id, birt: Default::default() };
+            let bift_cfg = BierBiftCfg {
+                bfr_id,
+                birt: Default::default(),
+            };
 
             master.bier_config.bift_cfg.insert(bfr_id, bift_cfg);
             let event_queue = args.event_queue;
@@ -1071,7 +1064,10 @@ fn load_callbacks() -> Callbacks<Master> {
             let bsl = args.dnode.get_string_relative("./bsl").unwrap();
             let bsl = Bsl::try_from_yang(&bsl).unwrap();
 
-            let bift = BierBift { bsl, nbr: Default::default() };
+            let bift = BierBift {
+                bsl,
+                nbr: Default::default(),
+            };
 
             bift_cfg.birt.insert(bsl, bift);
 
@@ -1112,7 +1108,11 @@ fn load_callbacks() -> Callbacks<Master> {
             let out_bift_encoding = args.dnode.get_bool_relative("./out-bift-id/out-bift-id-encoding");
             let out_bift_id = out_bift_id.map_or(out_bift_encoding.map(BierOutBiftId::Encoding), |v| Some(BierOutBiftId::Defined(v))).unwrap();
 
-            let nbr = BiftNbr { bfr_nbr, encap_type, out_bift_id };
+            let nbr = BiftNbr {
+                bfr_nbr,
+                encap_type,
+                out_bift_id,
+            };
 
             birt.nbr.insert(bfr_nbr, nbr);
 
@@ -1300,7 +1300,11 @@ impl Provider for Master {
 
     fn process_event(&mut self, event: Event) {
         match event {
-            Event::InstanceStart { protocol, name, network_instance } => {
+            Event::InstanceStart {
+                protocol,
+                name,
+                network_instance,
+            } => {
                 let base_id = InstanceId::new(protocol, name.clone());
                 let network_instance = self.instance_ni.get(&base_id).cloned().unwrap_or(network_instance);
                 instance_start(self, protocol, name, network_instance);
@@ -1472,18 +1476,16 @@ mod tests {
     use holo_utils::southbound::{InterfaceFlags, InterfaceUpdateMsg};
     use tokio::sync::mpsc;
 
+    use super::network_instance_create;
     use crate::birt::Birt;
     use crate::netlink::NetlinkRequest;
     use crate::rib::Rib;
     use crate::{Master, ibus};
 
-    use super::network_instance_create;
-
     fn test_master() -> Master {
         let (nb_tx, _nb_rx) = mpsc::unbounded_channel();
         let (ibus_tx, _ibus_rx) = ibus_channels();
-        let (netlink_tx, _netlink_rx) =
-            mpsc::unbounded_channel::<NetlinkRequest>();
+        let (netlink_tx, _netlink_rx) = mpsc::unbounded_channel::<NetlinkRequest>();
         let (rib_update_tx, _rib_update_rx) = mpsc::unbounded_channel();
         let (birt_update_tx, _birt_update_rx) = mpsc::unbounded_channel();
 
@@ -1507,13 +1509,7 @@ mod tests {
     #[test]
     fn network_instance_create_resolves_prelearned_vrf_table() {
         let mut master = test_master();
-        master.interfaces.update(
-            "blue".to_owned(),
-            10,
-            InterfaceFlags::OPERATIVE,
-            None,
-            Some(1001),
-        );
+        master.interfaces.update("blue".to_owned(), 10, InterfaceFlags::OPERATIVE, None, Some(1001));
 
         network_instance_create(&mut master, "blue".to_owned());
 
@@ -1619,11 +1615,7 @@ fn static_route_table_id(master: &Master, route_key: &StaticRouteKey) -> Option<
 }
 
 pub(crate) fn vpn_imports_update(master: &mut Master) {
-    let names = master
-        .network_instances
-        .keys()
-        .cloned()
-        .collect::<Vec<_>>();
+    let names = master.network_instances.keys().cloned().collect::<Vec<_>>();
     for name in names {
         vpn_export_label_update(master, &name);
     }
@@ -1681,21 +1673,14 @@ fn vpn_export_label_ensure(master: &mut Master, name: &str) {
 
 fn vpn_export_label_update(master: &mut Master, name: &str) {
     let desired = master.network_instances.get(name).and_then(|ni| {
-        if !ni.enabled
-            || ni.rd.is_none()
-            || ni.export_rts.is_empty()
-            || ni.table_id.is_none()
-        {
+        if !ni.enabled || ni.rd.is_none() || ni.export_rts.is_empty() || ni.table_id.is_none() {
             return None;
         }
         let label = ni.export_label?;
         let ifindex = master.interfaces.get_by_name(name)?.ifindex;
         Some((label, ifindex))
     });
-    let installed = master
-        .network_instances
-        .get(name)
-        .and_then(|ni| ni.export_label_installed);
+    let installed = master.network_instances.get(name).and_then(|ni| ni.export_label_installed);
 
     if let Some((label, _)) = installed
         && installed != desired
@@ -1716,7 +1701,9 @@ fn vpn_export_label_update(master: &mut Master, name: &str) {
         master.ibus_tx.route_mpls_add(LabelInstallMsg {
             protocol: Protocol::BGP,
             label,
-            nexthops: BTreeSet::from([Nexthop::Interface { ifindex }]),
+            nexthops: BTreeSet::from([Nexthop::Interface {
+                ifindex,
+            }]),
             route: None,
             replace: true,
         });
@@ -1726,11 +1713,7 @@ fn vpn_export_label_update(master: &mut Master, name: &str) {
 }
 
 fn vpn_export_label_uninstall(master: &mut Master, name: &str) {
-    let Some((label, _)) = master
-        .network_instances
-        .get_mut(name)
-        .and_then(|ni| ni.export_label_installed.take())
-    else {
+    let Some((label, _)) = master.network_instances.get_mut(name).and_then(|ni| ni.export_label_installed.take()) else {
         return;
     };
 
@@ -1747,15 +1730,11 @@ fn vpn_exports_replay(master: &Master, table_ids: &BTreeSet<u32>) {
         return;
     }
 
-    let redistribute_prefix =
-        |prefix, routes: &BTreeMap<RouteKey, Route>| {
-        for route in routes.values().filter(|route| {
-            route
-                .table_id
-                .is_some_and(|table_id| table_ids.contains(&table_id))
-                && route.flags.contains(RouteFlags::ACTIVE)
-                && !route.flags.contains(RouteFlags::REMOVED)
-        }) {
+    let redistribute_prefix = |prefix, routes: &BTreeMap<RouteKey, Route>| {
+        for route in routes
+            .values()
+            .filter(|route| route.table_id.is_some_and(|table_id| table_ids.contains(&table_id)) && route.flags.contains(RouteFlags::ACTIVE) && !route.flags.contains(RouteFlags::REMOVED))
+        {
             for sub in master.rib.subscriptions.values() {
                 crate::ibus::notify_redistribute_add(sub, prefix, route);
             }
@@ -1777,15 +1756,19 @@ fn static_nexthop_get(interfaces: &Interfaces, nexthop: &StaticRouteNexthop) -> 
         // against the connected prefixes.
         None => {
             let addr = nexthop.addr?;
-            interfaces.iter().find(|iface| {
-                iface.addresses.keys().any(|prefix| prefix.contains(addr))
-            })?
+            interfaces.iter().find(|iface| iface.addresses.keys().any(|prefix| prefix.contains(addr)))?
         }
     };
     let ifindex = iface.ifindex;
     let nexthop = match nexthop.addr {
-        Some(addr) => Nexthop::Address { ifindex, addr, labels: Default::default() },
-        None => Nexthop::Interface { ifindex },
+        Some(addr) => Nexthop::Address {
+            ifindex,
+            addr,
+            labels: Default::default(),
+        },
+        None => Nexthop::Interface {
+            ifindex,
+        },
     };
     Some(nexthop)
 }

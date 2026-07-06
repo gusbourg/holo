@@ -254,9 +254,18 @@ pub struct LabeledVpnIpv6Nlri {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 #[derive(Deserialize, Serialize)]
 pub enum EvpnRoute {
+    EthernetSegment(EvpnEthernetSegment),
     MacIpAdvertisement(EvpnMacIpAdvertisement),
     InclusiveMulticastEthernetTag(EvpnInclusiveMulticastEthernetTag),
     IpPrefix(EvpnIpPrefix),
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Deserialize, Serialize)]
+pub struct EvpnEthernetSegment {
+    pub rd: RouteDistinguisher,
+    pub esi: [u8; 10],
+    pub originator_ip: IpAddr,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -1239,8 +1248,30 @@ pub fn decode_labeled_vpn_ipv6_prefix(
 
 pub(crate) fn encode_evpn_route(buf: &mut BytesMut, route: &EvpnRoute) {
     match route {
+        EvpnRoute::EthernetSegment(route) => {
+            let len = 8 + 10 + 1 + route.originator_ip.length();
+            buf.put_u8(4);
+            buf.put_u8(len as u8);
+            buf.put_slice(&route.rd.encode());
+            buf.put_slice(&route.esi);
+            match route.originator_ip {
+                IpAddr::V4(addr) => {
+                    buf.put_u8(32);
+                    buf.put_ipv4(&addr);
+                }
+                IpAddr::V6(addr) => {
+                    buf.put_u8(128);
+                    buf.put_ipv6(&addr);
+                }
+            }
+        }
         EvpnRoute::MacIpAdvertisement(route) => {
-            let len = 8 + 10 + 4 + 1 + 6 + 1
+            let len = 8
+                + 10
+                + 4
+                + 1
+                + 6
+                + 1
                 + route.ip.map(|ip| ip.length()).unwrap_or_default()
                 + 3;
             buf.put_u8(2);
@@ -1267,7 +1298,8 @@ pub(crate) fn encode_evpn_route(buf: &mut BytesMut, route: &EvpnRoute) {
         EvpnRoute::IpPrefix(route) => {
             let prefix_len = route.prefix.prefix();
             let prefix_wire_len = prefix_wire_len(prefix_len);
-            let gw_len = route.gateway_ip.map(|ip| ip.length()).unwrap_or_default();
+            let gw_len =
+                route.gateway_ip.map(|ip| ip.length()).unwrap_or_default();
             let len = 8 + 10 + 4 + 1 + prefix_wire_len + gw_len + 3;
             buf.put_u8(5);
             buf.put_u8(len as u8);
@@ -1308,6 +1340,8 @@ pub(crate) fn decode_evpn_route(
     let mut route_buf = buf.copy_to_bytes(route_len);
 
     match route_type {
+        4 => decode_evpn_ethernet_segment(&mut route_buf)
+            .map(|route| route.map(EvpnRoute::EthernetSegment)),
         2 => decode_evpn_mac_ip_advertisement(&mut route_buf)
             .map(|route| route.map(EvpnRoute::MacIpAdvertisement)),
         3 => decode_evpn_imet(&mut route_buf)
@@ -1316,6 +1350,33 @@ pub(crate) fn decode_evpn_route(
             .map(|route| route.map(EvpnRoute::IpPrefix)),
         _ => Ok(None),
     }
+}
+
+fn decode_evpn_ethernet_segment(
+    buf: &mut Bytes,
+) -> Result<Option<EvpnEthernetSegment>, UpdateMessageError> {
+    if buf.remaining() < 8 + 10 + 1 {
+        return Err(UpdateMessageError::InvalidNetworkField);
+    }
+    let rd = decode_rd(buf)?;
+    let mut esi = [0; 10];
+    buf.try_copy_to_slice(&mut esi)?;
+    let ip_len = buf.try_get_u8()?;
+    let originator_ip = match ip_len {
+        32 if buf.remaining() == Ipv4Addr::LENGTH => {
+            IpAddr::V4(buf.try_get_ipv4()?)
+        }
+        128 if buf.remaining() == Ipv6Addr::LENGTH => {
+            IpAddr::V6(buf.try_get_ipv6()?)
+        }
+        _ => return Err(UpdateMessageError::InvalidNetworkField),
+    };
+
+    Ok(Some(EvpnEthernetSegment {
+        rd,
+        esi,
+        originator_ip,
+    }))
 }
 
 fn decode_evpn_mac_ip_advertisement(
@@ -1389,9 +1450,10 @@ fn decode_evpn_ip_prefix(
     let ethernet_tag_id = buf.try_get_u32()?;
     let prefix_len = buf.try_get_u8()?;
     let prefix_wire_len = prefix_wire_len(prefix_len);
-    let suffix_len = buf.remaining().checked_sub(3).ok_or(
-        UpdateMessageError::InvalidNetworkField,
-    )?;
+    let suffix_len = buf
+        .remaining()
+        .checked_sub(3)
+        .ok_or(UpdateMessageError::InvalidNetworkField)?;
     let (prefix, gateway_ip) = match suffix_len.checked_sub(prefix_wire_len) {
         Some(0) => (decode_evpn_ip_prefix_addr(buf, prefix_len, false)?, None),
         Some(Ipv4Addr::LENGTH) => {
@@ -1466,7 +1528,9 @@ fn decode_evpn_label(buf: &mut Bytes) -> Result<u32, UpdateMessageError> {
     Ok(label_entry >> 4)
 }
 
-fn decode_rd(buf: &mut Bytes) -> Result<RouteDistinguisher, UpdateMessageError> {
+fn decode_rd(
+    buf: &mut Bytes,
+) -> Result<RouteDistinguisher, UpdateMessageError> {
     let mut rd_bytes = [0; 8];
     buf.try_copy_to_slice(&mut rd_bytes)?;
     RouteDistinguisher::decode(rd_bytes)

@@ -82,6 +82,8 @@ pub struct Extv6Comm(pub Ipv6Addr, pub u32);
 #[derive(Deserialize, Serialize)]
 pub struct LargeComm(pub [u8; 12]);
 
+pub type EthernetSegmentId = [u8; 10];
+
 // BGP Well-known Communities.
 //
 // IANA registry:
@@ -257,6 +259,14 @@ impl ToYang for ExtComm {
         )
         .into()
     }
+}
+
+pub fn evpn_es_import_route_target(esi: EthernetSegmentId) -> ExtComm {
+    let mut bytes = [0; 8];
+    bytes[0] = 0x06;
+    bytes[1] = 0x02;
+    bytes[2..8].copy_from_slice(&esi[1..7]);
+    ExtComm(bytes)
 }
 
 // ===== impl RouteDistinguisher =====

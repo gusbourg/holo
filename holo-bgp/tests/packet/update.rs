@@ -14,9 +14,10 @@ use holo_bgp::packet::attribute::{
 };
 use holo_bgp::packet::iana::Origin;
 use holo_bgp::packet::message::{
-    DecodeCxt, EncodeCxt, EvpnInclusiveMulticastEthernetTag, EvpnIpPrefix,
-    EvpnMacIpAdvertisement, EvpnRoute, Message, MpReachNlri, MpUnreachNlri,
-    NegotiatedCapability, ReachNlri, UnreachNlri, UpdateMsg,
+    DecodeCxt, EncodeCxt, EvpnEthernetSegment,
+    EvpnInclusiveMulticastEthernetTag, EvpnIpPrefix, EvpnMacIpAdvertisement,
+    EvpnRoute, Message, MpReachNlri, MpUnreachNlri, NegotiatedCapability,
+    ReachNlri, UnreachNlri, UpdateMsg,
 };
 use holo_utils::bgp::{
     Comm, ExtComm, Extv6Comm, LargeComm, RouteDistinguisher,
@@ -165,6 +166,14 @@ fn test_roundtrip_evpn_update() {
         unreach: None,
         mp_reach: Some(MpReachNlri::L2vpnEvpn {
             routes: vec![
+                EvpnRoute::EthernetSegment(EvpnEthernetSegment {
+                    rd: RouteDistinguisher::As2Administrator {
+                        asn: 65000,
+                        number: 1,
+                    },
+                    esi: [3, 0, 17, 34, 51, 68, 85, 102, 0, 1],
+                    originator_ip: ip4!("192.0.2.1").into(),
+                }),
                 EvpnRoute::MacIpAdvertisement(EvpnMacIpAdvertisement {
                     rd: RouteDistinguisher::As2Administrator {
                         asn: 65000,

@@ -9,7 +9,7 @@ use std::net::{IpAddr, Ipv4Addr};
 
 use chrono::Utc;
 use holo_protocol::InstanceShared;
-use holo_utils::bgp::RouteType;
+use holo_utils::bgp::{AfiSafi, RouteType};
 use holo_utils::ibus::IbusChannelsTx;
 use holo_utils::ip::IpAddrKind;
 use holo_utils::mpls::Label;
@@ -962,6 +962,8 @@ pub(crate) fn decision_process<A>(
 where
     A: AddressFamily,
 {
+    sync_default_originate::<A>(instance, neighbors);
+
     // Get route selection configuration for the address family.
     let selection_cfg = &instance
         .config
@@ -1049,8 +1051,9 @@ where
             let mut nbr_reach = reach.clone();
             nbr_unreach.extend(
                 nbr_reach
-                    .extract_if(.., |(_, route)| {
-                        !nbr.distribute_filter(
+                    .extract_if(.., |(prefix, route)| {
+                        !nbr.distribute_filter::<A>(
+                            *prefix,
                             route,
                             source_rr_client(route, &rr_clients),
                         )
@@ -1126,6 +1129,86 @@ fn local_cluster_ids(
         .filter(|nbr| nbr.config.route_reflector.client)
         .filter_map(|nbr| nbr.config.route_reflector.cluster_id.or(identifier))
         .collect()
+}
+
+pub(crate) fn sync_default_originate<A>(
+    instance: &mut InstanceUpView<'_>,
+    neighbors: &Neighbors,
+) where
+    A: AddressFamily,
+{
+    let Some(prefix) = default_originate_prefix::<A>() else {
+        return;
+    };
+
+    let enabled = neighbors
+        .values()
+        .any(|nbr| default_originate_neighbor_enabled::<A>(nbr));
+
+    if enabled {
+        ensure_default_originate_route::<A>(instance);
+    } else {
+        let table = A::table(&mut instance.state.rib.tables);
+        if let Some(dest) = table.prefixes.get_mut(&prefix)
+            && dest.redistribute.take().is_some()
+        {
+            table.queued_prefixes.insert(prefix);
+        }
+    }
+}
+
+pub(crate) fn ensure_default_originate_route<A>(
+    instance: &mut InstanceUpView<'_>,
+) where
+    A: AddressFamily,
+{
+    let Some(prefix) = default_originate_prefix::<A>() else {
+        return;
+    };
+
+    let rib = &mut instance.state.rib;
+    let table = A::table(&mut rib.tables);
+    let dest = table.prefixes.entry(prefix).or_default();
+    let mut attrs = Attrs::default();
+    attrs.base.origin = holo_utils::bgp::Origin::Igp;
+    let route_attrs = rib.attr_sets.get_route_attr_sets(&attrs);
+    let route = Route::new(
+        RouteOrigin::Protocol(holo_utils::protocol::Protocol::BGP),
+        route_attrs,
+        RouteType::Internal,
+    );
+    let update_needed = dest.redistribute.as_deref() != Some(&route);
+    dest.redistribute = Some(Box::new(route));
+    if update_needed {
+        table.queued_prefixes.insert(prefix);
+    }
+}
+
+pub(crate) fn default_originate_prefix<A>() -> Option<A::Prefix>
+where
+    A: AddressFamily,
+{
+    match A::AFI_SAFI {
+        AfiSafi::Ipv4Unicast => {
+            A::prefix_from_ip_network("0.0.0.0/0".parse().unwrap())
+        }
+        AfiSafi::Ipv6Unicast => {
+            A::prefix_from_ip_network("::/0".parse().unwrap())
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn default_originate_neighbor_enabled<A>(nbr: &Neighbor) -> bool
+where
+    A: AddressFamily,
+{
+    nbr.config
+        .afi_safi
+        .get(&A::AFI_SAFI)
+        .is_some_and(|afi_safi| {
+            afi_safi.enabled && afi_safi.send_default_route == Some(true)
+        })
 }
 
 fn withdraw_routes<A>(

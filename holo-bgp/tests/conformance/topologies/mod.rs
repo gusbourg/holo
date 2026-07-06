@@ -47,3 +47,13 @@ async fn prefix_limit_1() {
 async fn default_originate_1() {
     run_test_topology::<Instance>("default-originate-1", "rt1").await;
 }
+
+#[tokio::test]
+async fn policy_core_1() {
+    run_test_topology::<Instance>("policy-core-1", "rt1").await;
+}
+
+#[tokio::test]
+async fn policy_community_1() {
+    run_test_topology::<Instance>("policy-community-1", "rt1").await;
+}

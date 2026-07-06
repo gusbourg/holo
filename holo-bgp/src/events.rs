@@ -133,7 +133,10 @@ pub(crate) fn process_nbr_msg(
                                 ErrorCode::Cease,
                                 CeaseSubcode::MaximumNumberofPrefixesReached,
                             );
-                            nbr.fsm_event(instance, fsm::Event::Stop(Some(msg)));
+                            nbr.fsm_event(
+                                instance,
+                                fsm::Event::Stop(Some(msg)),
+                            );
                         }
                     }
                 }
@@ -493,7 +496,11 @@ where
     }
 
     let table = A::table(&mut rib.tables);
-    if prefix_limit_exceeded(nbr, table, nlri_prefixes.iter().map(|(prefix, _)| prefix)) {
+    if prefix_limit_exceeded(
+        nbr,
+        table,
+        nlri_prefixes.iter().map(|(prefix, _)| prefix),
+    ) {
         return true;
     }
 

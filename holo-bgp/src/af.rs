@@ -14,6 +14,7 @@ use holo_utils::ip::{IpAddrKind, IpNetworkKind, Ipv4AddrExt, Ipv6AddrExt};
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use itertools::Itertools;
 
+use crate::evpn;
 use crate::ibus;
 use crate::neighbor::{
     Neighbor, NeighborUpdateQueue, NeighborUpdateQueues, PeerType,
@@ -24,7 +25,9 @@ use crate::packet::message::{
     EvpnRoute, LabeledVpnIpv4Nlri, LabeledVpnIpv6Nlri, Message, MpReachNlri,
     MpUnreachNlri, ReachNlri, UnreachNlri, UpdateMsg,
 };
-use crate::rib::{LocalRoute, RoutingTable, RoutingTables};
+use crate::rib::{
+    LocalRoute, Route, RouteCompare, RoutingTable, RoutingTables,
+};
 
 // BGP address-family specific code.
 pub trait AddressFamily: Sized {
@@ -74,6 +77,14 @@ pub trait AddressFamily: Sized {
 
     // Build BGP UPDATE messages based on the provided update queue.
     fn build_updates(queue: &mut NeighborUpdateQueue<Self>) -> Vec<Message>;
+
+    fn route_compare_override(
+        _prefix: Self::Prefix,
+        _route: &Route,
+        _best_route: &Route,
+    ) -> Option<RouteCompare> {
+        None
+    }
 
     fn vpn_import_install(
         _prefix: Self::Prefix,
@@ -788,6 +799,14 @@ impl AddressFamily for L2vpnEvpn {
         }
 
         msgs
+    }
+
+    fn route_compare_override(
+        prefix: Self::Prefix,
+        route: &Route,
+        best_route: &Route,
+    ) -> Option<RouteCompare> {
+        evpn::mac_mobility_compare(prefix, route, best_route)
     }
 }
 

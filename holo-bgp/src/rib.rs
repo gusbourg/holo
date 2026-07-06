@@ -167,10 +167,12 @@ pub enum RouteRejectReason {
     HigherRouterId,
     HigherPeerAddress,
     RejectedImportPolicy,
+    EvpnMacMobilityLowerSequence,
+    EvpnMacMobilitySticky,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RouteCompare {
+pub enum RouteCompare {
     Preferred(RouteRejectReason),
     LessPreferred(RouteRejectReason),
     MultipathEqual,
@@ -717,6 +719,7 @@ where
 // ===== global functions =====
 
 pub(crate) fn best_path<A>(
+    prefix: A::Prefix,
     dest: &mut Destination,
     local_asn: u32,
     nht: &HashMap<IpAddr, NhtEntry<A>>,
@@ -764,7 +767,10 @@ where
             }
             Some(best_route) => {
                 // Update the best route if the current route is preferred.
-                match route.compare(best_route, selection_cfg, None) {
+                match A::route_compare_override(prefix, route, best_route)
+                    .unwrap_or_else(|| {
+                        route.compare(best_route, selection_cfg, None)
+                    }) {
                     RouteCompare::Preferred(reason) => {
                         best_route.reject_reason = Some(reason);
                         *best_route = route;
@@ -956,7 +962,11 @@ pub(crate) fn nexthop_untrack<A>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::af::L2vpnEvpn;
+    use crate::evpn;
     use crate::packet::attribute::BaseAttrs;
+    use crate::packet::attribute::CommList;
+    use crate::packet::message::{EvpnMacIpAdvertisement, EvpnRoute};
 
     fn make_route(
         origin: RouteOrigin,
@@ -985,6 +995,52 @@ mod tests {
             ineligible_reason: None,
             reject_reason: None,
         }
+    }
+
+    fn make_evpn_route(remote_addr: IpAddr, sequence: u32) -> Route {
+        let mut base_attrs = BaseAttrs::default();
+        base_attrs.nexthop = Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 254)));
+        let mobility = evpn::mac_mobility_ext_comm(false, sequence);
+        Route {
+            origin: RouteOrigin::Neighbor {
+                identifier: Ipv4Addr::new(192, 0, 2, 254),
+                remote_addr,
+            },
+            attrs: RouteAttrs {
+                base: Arc::new(AttrSet {
+                    index: 0,
+                    value: base_attrs,
+                }),
+                comm: None,
+                ext_comm: Some(Arc::new(AttrSet {
+                    index: 0,
+                    value: CommList([mobility].into()),
+                })),
+                extv6_comm: None,
+                large_comm: None,
+                unknown: None,
+            },
+            route_type: RouteType::Internal,
+            vpn_label: None,
+            igp_cost: None,
+            last_modified: Instant::now(),
+            ineligible_reason: None,
+            reject_reason: None,
+        }
+    }
+
+    fn mac_prefix() -> EvpnRoute {
+        EvpnRoute::MacIpAdvertisement(EvpnMacIpAdvertisement {
+            rd: holo_utils::bgp::RouteDistinguisher::As2Administrator {
+                asn: 65000,
+                number: 1,
+            },
+            esi: [0; 10],
+            ethernet_tag_id: 100,
+            mac: [0, 1, 2, 3, 4, 5],
+            ip: None,
+            label: 16000,
+        })
     }
 
     fn ibgp_origin() -> RouteOrigin {
@@ -1092,5 +1148,51 @@ mod tests {
             RouteCompare::Preferred(RouteRejectReason::PreferExternal) => {}
             other => panic!("expected PreferExternal, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn evpn_best_path_prefers_higher_mac_mobility_sequence() {
+        let low_peer = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1));
+        let high_peer = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 2));
+        let prefix = mac_prefix();
+        let mut dest = Destination::default();
+        dest.adj_rib.insert(
+            low_peer,
+            AdjRib {
+                in_post: Some(Box::new(make_evpn_route(low_peer, 1))),
+                ..Default::default()
+            },
+        );
+        dest.adj_rib.insert(
+            high_peer,
+            AdjRib {
+                in_post: Some(Box::new(make_evpn_route(high_peer, 2))),
+                ..Default::default()
+            },
+        );
+        let nht = HashMap::from([(
+            IpAddr::V4(Ipv4Addr::new(192, 0, 2, 254)),
+            NhtEntry::<L2vpnEvpn> {
+                metric: Some(1),
+                prefixes: Default::default(),
+            },
+        )]);
+
+        let route = best_path::<L2vpnEvpn>(
+            prefix,
+            &mut dest,
+            65000,
+            &nht,
+            &Default::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            route.origin,
+            RouteOrigin::Neighbor {
+                identifier: Ipv4Addr::new(192, 0, 2, 254),
+                remote_addr: high_peer,
+            }
+        );
     }
 }

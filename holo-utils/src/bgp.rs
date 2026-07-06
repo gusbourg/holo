@@ -90,6 +90,12 @@ pub struct EvpnEsiLabel {
     pub label: u32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EvpnMacMobility {
+    pub sticky: bool,
+    pub sequence: u32,
+}
+
 // BGP Well-known Communities.
 //
 // IANA registry:
@@ -296,6 +302,27 @@ pub fn evpn_esi_label_from_ext_comm(comm: &ExtComm) -> Option<EvpnEsiLabel> {
     Some(EvpnEsiLabel {
         single_active: comm.0[2] & 1 == 1,
         label: label >> 4,
+    })
+}
+
+pub fn evpn_mac_mobility_ext_comm(mobility: EvpnMacMobility) -> ExtComm {
+    let mut bytes = [0; 8];
+    bytes[0] = 0x06;
+    bytes[1] = 0x00;
+    bytes[2] = mobility.sticky as u8;
+    bytes[4..8].copy_from_slice(&mobility.sequence.to_be_bytes());
+    ExtComm(bytes)
+}
+
+pub fn evpn_mac_mobility_from_ext_comm(
+    comm: &ExtComm,
+) -> Option<EvpnMacMobility> {
+    if comm.0[0] != 0x06 || comm.0[1] != 0x00 {
+        return None;
+    }
+    Some(EvpnMacMobility {
+        sticky: comm.0[2] & 1 == 1,
+        sequence: u32::from_be_bytes(comm.0[4..8].try_into().unwrap()),
     })
 }
 

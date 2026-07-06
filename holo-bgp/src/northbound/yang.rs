@@ -234,6 +234,8 @@ impl ToYang for RouteRejectReason {
             RouteRejectReason::HigherRouterId => "iana-bgp-rib-types:higher-router-id".into(),
             RouteRejectReason::HigherPeerAddress => "iana-bgp-rib-types:higher-peer-address".into(),
             RouteRejectReason::RejectedImportPolicy => "iana-bgp-rib-types:rejected-import-policy".into(),
+            RouteRejectReason::EvpnMacMobilityLowerSequence => "holo-bgp:evpn-mac-mobility-lower-sequence".into(),
+            RouteRejectReason::EvpnMacMobilitySticky => "holo-bgp:evpn-mac-mobility-sticky".into(),
         }
     }
 }

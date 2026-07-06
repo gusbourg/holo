@@ -903,6 +903,7 @@ where
 
         // Perform best-path selection for the destination.
         let best_route = rib::best_path::<A>(
+            prefix,
             dest,
             instance.config.asn,
             &table.nht,

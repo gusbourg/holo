@@ -101,7 +101,7 @@ where
 
     // Synchronizes the protocol instance to ensure all previously sent instance
     // messages were already received and processed.
-    async fn sync(&self) {
+    pub async fn sync(&self) {
         let (responder_tx, responder_rx) = oneshot::channel();
         let msg = TestMsg::Synchronize(SynchronizeMsg {
             responder: Some(responder_tx),
@@ -110,6 +110,27 @@ where
         responder_rx
             .await
             .expect("failed to receive Synchronize response");
+    }
+
+    pub async fn commit_replace(&mut self, config: &str) {
+        self.nb.commit_replace(config).await;
+    }
+
+    pub async fn state_json(&self) -> String {
+        let state = self.nb.get_state().await;
+        northbound::dtree_print(&state)
+    }
+
+    pub fn reset_output(&self) {
+        self.messages.reset_output();
+    }
+
+    pub fn take_ibus_output(&self) -> Vec<String> {
+        self.messages.ibus_output()
+    }
+
+    pub fn take_protocol_output(&self) -> Vec<String> {
+        self.messages.protocol_output()
     }
 
     fn assert_nb_notifications(

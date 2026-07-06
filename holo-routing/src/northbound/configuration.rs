@@ -1312,9 +1312,7 @@ fn static_nexthop_get(interfaces: &Interfaces, nexthop: &StaticRouteNexthop) -> 
         // against the connected prefixes.
         None => {
             let addr = nexthop.addr?;
-            interfaces.iter().find(|iface| {
-                iface.addresses.keys().any(|prefix| prefix.contains(addr))
-            })?
+            interfaces.iter().find(|iface| iface.addresses.keys().any(|prefix| prefix.contains(addr)))?
         }
     };
     let ifindex = iface.ifindex;

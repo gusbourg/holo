@@ -24,8 +24,13 @@ async fn topology2_1() {
 }
 
 #[tokio::test]
-async fn labeled_unicast_1() {
-    run_test_topology::<Instance>("lu-1", "rt1").await;
+async fn l3vpn_1() {
+    run_test_topology::<Instance>("l3vpn-1", "rt1").await;
+}
+
+#[tokio::test]
+async fn evpn_1() {
+    run_test_topology::<Instance>("evpn-1", "rt1").await;
 }
 
 #[tokio::test]

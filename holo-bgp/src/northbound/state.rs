@@ -24,11 +24,12 @@ use crate::packet::iana::{Afi, Safi};
 use crate::packet::message::{AddPathTuple, Capability};
 use crate::rib::{AttrSet, Destination, LocalRoute, Route};
 
-pub static AFI_SAFIS: [AfiSafi; 4] = [
+pub static AFI_SAFIS: [AfiSafi; 5] = [
     AfiSafi::Ipv4Unicast,
     AfiSafi::Ipv6Unicast,
-    AfiSafi::Ipv4LabeledUnicast,
-    AfiSafi::Ipv6LabeledUnicast,
+    AfiSafi::L3vpnIpv4Unicast,
+    AfiSafi::L3vpnIpv6Unicast,
+    AfiSafi::L2vpnEvpn,
 ];
 
 impl Provider for Instance {
@@ -67,12 +68,13 @@ impl<'a> YangContainer<'a, Instance> for bgp::global::afi_safis::afi_safi::stati
         let total_prefixes = match afi_safi {
             AfiSafi::Ipv4Unicast => rib.tables.ipv4_unicast.prefixes.len(),
             AfiSafi::Ipv6Unicast => rib.tables.ipv6_unicast.prefixes.len(),
-            AfiSafi::Ipv4LabeledUnicast => {
-                rib.tables.ipv4_labeled_unicast.prefixes.len()
+            AfiSafi::L3vpnIpv4Unicast => {
+                rib.tables.vpnv4_unicast.prefixes.len()
             }
-            AfiSafi::Ipv6LabeledUnicast => {
-                rib.tables.ipv6_labeled_unicast.prefixes.len()
+            AfiSafi::L3vpnIpv6Unicast => {
+                rib.tables.vpnv6_unicast.prefixes.len()
             }
+            AfiSafi::L2vpnEvpn => rib.tables.l2vpn_evpn.prefixes.len(),
         };
         Some(Self {
             total_paths: None, // TODO
@@ -88,12 +90,7 @@ impl<'a> YangContainer<'a, Instance> for bgp::global::statistics::Statistics {
         let rib = &instance.state.as_ref()?.rib;
         let total_ipv4 = rib.tables.ipv4_unicast.prefixes.len();
         let total_ipv6 = rib.tables.ipv6_unicast.prefixes.len();
-        let total_ipv4_lu = rib.tables.ipv4_labeled_unicast.prefixes.len();
-        let total_ipv6_lu = rib.tables.ipv6_labeled_unicast.prefixes.len();
-        let total_prefixes = total_ipv4 as u32
-            + total_ipv6 as u32
-            + total_ipv4_lu as u32
-            + total_ipv6_lu as u32;
+        let total_prefixes = total_ipv4 as u32 + total_ipv6 as u32;
         Some(Self {
             total_paths: None, // TODO
             total_prefixes: Some(total_prefixes),
@@ -188,12 +185,9 @@ impl<'a> YangContainer<'a, Instance> for bgp::neighbors::neighbor::afi_safis::af
         let (r, s, i) = match afi_safi {
             AfiSafi::Ipv4Unicast => count_stats(&rib.tables.ipv4_unicast.prefixes, &nbr.remote_addr),
             AfiSafi::Ipv6Unicast => count_stats(&rib.tables.ipv6_unicast.prefixes, &nbr.remote_addr),
-            AfiSafi::Ipv4LabeledUnicast => {
-                count_stats(&rib.tables.ipv4_labeled_unicast.prefixes, &nbr.remote_addr)
-            }
-            AfiSafi::Ipv6LabeledUnicast => {
-                count_stats(&rib.tables.ipv6_labeled_unicast.prefixes, &nbr.remote_addr)
-            }
+            AfiSafi::L3vpnIpv4Unicast => count_stats(&rib.tables.vpnv4_unicast.prefixes, &nbr.remote_addr),
+            AfiSafi::L3vpnIpv6Unicast => count_stats(&rib.tables.vpnv6_unicast.prefixes, &nbr.remote_addr),
+            AfiSafi::L2vpnEvpn => count_stats(&rib.tables.l2vpn_evpn.prefixes, &nbr.remote_addr),
         };
         Some(Self {
             received: Some(r),
@@ -340,7 +334,7 @@ impl<'a> YangContainer<'a, Instance> for bgp::neighbors::neighbor::errors::recei
     fn new(_instance: &'a Instance, nbr: &Self::ParentListEntry) -> Option<Self> {
         let (time, notif) = nbr.notification_rcvd.as_ref()?;
         Some(Self {
-            last_notification: Some(*time),
+            last_notification: Some(*time).ignore_in_testing(),
             last_error: Some(notif.to_yang()),
             last_error_code: Some(notif.error_code),
             last_error_subcode: Some(notif.error_subcode),
@@ -355,7 +349,7 @@ impl<'a> YangContainer<'a, Instance> for bgp::neighbors::neighbor::errors::sent:
     fn new(_instance: &'a Instance, nbr: &Self::ParentListEntry) -> Option<Self> {
         let (time, notif) = nbr.notification_sent.as_ref()?;
         Some(Self {
-            last_notification: Some(*time),
+            last_notification: Some(*time).ignore_in_testing(),
             last_error: Some(notif.to_yang()),
             last_error_code: Some(notif.error_code),
             last_error_subcode: Some(notif.error_subcode),
@@ -1140,12 +1134,9 @@ fn afi_safi_tuple(afi: Afi, safi: Safi) -> Option<AfiSafi> {
     match (afi, safi) {
         (Afi::Ipv4, Safi::Unicast) => Some(AfiSafi::Ipv4Unicast),
         (Afi::Ipv6, Safi::Unicast) => Some(AfiSafi::Ipv6Unicast),
-        (Afi::Ipv4, Safi::LabeledUnicast) => {
-            Some(AfiSafi::Ipv4LabeledUnicast)
-        }
-        (Afi::Ipv6, Safi::LabeledUnicast) => {
-            Some(AfiSafi::Ipv6LabeledUnicast)
-        }
+        (Afi::Ipv4, Safi::LabeledVpn) => Some(AfiSafi::L3vpnIpv4Unicast),
+        (Afi::Ipv6, Safi::LabeledVpn) => Some(AfiSafi::L3vpnIpv6Unicast),
+        (Afi::L2vpn, Safi::Evpn) => Some(AfiSafi::L2vpnEvpn),
         _ => None,
     }
 }

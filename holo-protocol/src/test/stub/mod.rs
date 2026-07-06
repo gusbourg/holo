@@ -117,7 +117,9 @@ where
         path: &impl AsRef<std::path::Path>,
     ) {
         let actual = self.messages.nb_notifications().join("\n");
-        self.assert_output(expected, &actual, path);
+        let expected = normalize_last_notification_timestamps(expected);
+        let actual = normalize_last_notification_timestamps(&actual);
+        self.assert_output(&expected, &actual, path);
     }
 
     fn assert_ibus_output(
@@ -220,6 +222,26 @@ where
 
 fn output_path(dir: &str, step: usize, op: TestOpOutput) -> String {
     format!("{}/{:0width$}-{}", dir, step, op.to_filename(), width = 2)
+}
+
+fn normalize_last_notification_timestamps(output: &str) -> String {
+    const FIELD: &str = "\"last-notification\":\"";
+    const VALUE: &str = "<timestamp>";
+
+    let mut normalized = String::with_capacity(output.len());
+    let mut rest = output;
+    while let Some(pos) = rest.find(FIELD) {
+        let (before, after_before) = rest.split_at(pos + FIELD.len());
+        normalized.push_str(before);
+        let after_value = after_before
+            .find('"')
+            .map(|end| &after_before[end..])
+            .unwrap_or_default();
+        normalized.push_str(VALUE);
+        rest = after_value;
+    }
+    normalized.push_str(rest);
+    normalized
 }
 
 // Loads instance snapshot of the provided topology and router.

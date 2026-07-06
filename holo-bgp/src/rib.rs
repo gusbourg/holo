@@ -969,10 +969,11 @@ pub(crate) fn nexthop_untrack<A>(
 
 #[cfg(test)]
 mod tests {
+    use holo_utils::socket::TcpConnInfo;
+
     use super::*;
     use crate::af::Ipv4Unicast;
     use crate::packet::attribute::BaseAttrs;
-    use holo_utils::socket::TcpConnInfo;
 
     fn make_route(
         origin: RouteOrigin,

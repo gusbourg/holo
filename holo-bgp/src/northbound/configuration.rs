@@ -879,8 +879,7 @@ fn load_callbacks() -> Callbacks<Instance> {
             let nbr_addr = args.list_entry.into_neighbor().unwrap();
             let nbr = instance.neighbors.get_mut(&nbr_addr).unwrap();
 
-            nbr.config.route_reflector.client =
-                bgp::neighbors::neighbor::route_reflector::client::DFLT;
+            nbr.config.route_reflector.client = bgp::neighbors::neighbor::route_reflector::client::DFLT;
 
             schedule_decision_process_all_afs(instance);
         })
@@ -890,9 +889,7 @@ fn load_callbacks() -> Callbacks<Instance> {
             let nbr = instance.neighbors.get_mut(&nbr_addr).unwrap();
 
             let cluster_id = args.dnode.get_string();
-            let cluster_id = cluster_id
-                .parse::<Ipv4Addr>()
-                .unwrap_or_else(|_| Ipv4Addr::from(cluster_id.parse::<u32>().unwrap()));
+            let cluster_id = cluster_id.parse::<Ipv4Addr>().unwrap_or_else(|_| Ipv4Addr::from(cluster_id.parse::<u32>().unwrap()));
             nbr.config.route_reflector.cluster_id = Some(cluster_id);
 
             schedule_decision_process_all_afs(instance);

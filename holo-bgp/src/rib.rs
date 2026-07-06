@@ -1174,7 +1174,12 @@ mod tests {
         );
 
         let cluster_ids = BTreeSet::from([Ipv4Addr::new(192, 0, 2, 1)]);
+        let prefix = Ipv4Unicast::prefix_from_ip_network(
+            "192.0.2.0/24".parse().unwrap(),
+        )
+        .unwrap();
         let best = best_path::<Ipv4Unicast>(
+            prefix,
             &mut dest,
             65000,
             None,
@@ -1324,6 +1329,8 @@ mod tests {
             prefix,
             &mut dest,
             65000,
+            None,
+            &BTreeSet::new(),
             &nht,
             &Default::default(),
         )

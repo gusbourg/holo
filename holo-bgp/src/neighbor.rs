@@ -674,9 +674,7 @@ impl Neighbor {
         // Base capabilities.
         let mut capabilities: BTreeSet<_> = [
             Capability::RouteRefresh,
-            Capability::FourOctetAsNumber {
-                asn: local_asn,
-            },
+            Capability::FourOctetAsNumber { asn: local_asn },
         ]
         .into();
 

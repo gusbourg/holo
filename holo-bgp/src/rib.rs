@@ -981,14 +981,16 @@ pub(crate) fn nexthop_untrack<A>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+
+    use holo_utils::socket::TcpConnInfo;
+
     use super::*;
     use crate::af::Ipv4Unicast;
     use crate::northbound::configuration::LocalAsOptionsCfg;
     use crate::packet::attribute::{
         AsPath, AsPathSegment, AsPathSegmentType, BaseAttrs,
     };
-    use holo_utils::socket::TcpConnInfo;
-    use std::collections::VecDeque;
 
     fn make_route(
         origin: RouteOrigin,
@@ -1047,8 +1049,10 @@ mod tests {
     }
 
     fn external_neighbor(peer_as: u32) -> Neighbor {
-        let mut nbr =
-            Neighbor::new(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 2)), PeerType::External);
+        let mut nbr = Neighbor::new(
+            IpAddr::V4(Ipv4Addr::new(192, 0, 2, 2)),
+            PeerType::External,
+        );
         nbr.config.peer_as = peer_as;
         nbr.conn_info = Some(TcpConnInfo {
             local_addr: IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)),

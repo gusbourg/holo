@@ -408,7 +408,7 @@ where
     }
     #[cfg(not(feature = "testing"))]
     {
-        spawn_protocol_task_inner(
+        spawn_protocol_task_impl(
             name,
             nb_provider_tx,
             ibus_tx,
@@ -434,7 +434,7 @@ pub fn spawn_protocol_task_with_test<P>(
 where
     P: ProtocolInstance,
 {
-    spawn_protocol_task_inner(
+    spawn_protocol_task_impl::<P>(
         name,
         nb_provider_tx,
         ibus_tx,
@@ -446,7 +446,7 @@ where
     )
 }
 
-fn spawn_protocol_task_inner<P>(
+fn spawn_protocol_task_impl<P>(
     name: String,
     nb_provider_tx: &NbProviderSender,
     ibus_tx: &IbusChannelsTx,

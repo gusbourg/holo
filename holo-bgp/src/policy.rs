@@ -666,8 +666,8 @@ mod tests {
 
     use holo_utils::ip::AddressFamily;
     use holo_utils::policy::{
-        CompiledRegex, IpPrefixRange, Policy, PolicyAction, PolicyCondition,
-        PolicyStmt,
+        CompiledRegex, IpPrefixRange, Policy, PolicyAction,
+        PolicyCondition, PolicyStmt, bgp_as_path_regex_pattern,
     };
 
     use super::*;
@@ -682,6 +682,7 @@ mod tests {
                 remote_addr: "192.0.2.2".parse().unwrap(),
             },
             RouteType::External,
+            None,
             None,
             None,
             Attrs::default(),

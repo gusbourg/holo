@@ -91,6 +91,7 @@ pub struct MultipathCfg {
 #[derive(Debug)]
 pub struct InstanceAfiSafiCfg {
     pub enabled: bool,
+    pub add_path: AddPathCfg,
     pub multipath: MultipathCfg,
     pub route_selection: RouteSelectionCfg,
     pub prefix_limit: PrefixLimitCfg,
@@ -131,6 +132,7 @@ pub struct NeighborCfg {
     pub timers: NeighborTimersCfg,
     pub transport: NeighborTransportCfg,
     pub log_neighbor_state_changes: bool,
+    pub add_path: AddPathCfg,
     pub as_path_options: AsPathOptions,
     pub apply_policy: ApplyPolicyCfg,
     pub prefix_limit: PrefixLimitCfg,
@@ -163,6 +165,7 @@ pub struct NeighborTransportCfg {
 #[derive(Debug)]
 pub struct NeighborAfiSafiCfg {
     pub enabled: bool,
+    pub add_path: AddPathCfg,
     pub prefix_limit: PrefixLimitCfg,
     pub send_default_route: bool,
     pub apply_policy: ApplyPolicyCfg,
@@ -212,6 +215,12 @@ pub struct AsPathOptions {
     pub allow_own_as: u8,
     pub replace_peer_as: bool,
     pub disable_peer_as_filter: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AddPathCfg {
+    pub receive: bool,
+    pub send_all: bool,
 }
 
 #[derive(Debug)]
@@ -392,6 +401,56 @@ fn load_callbacks() -> Callbacks<Instance> {
 
             let enable = args.dnode.get_bool();
             afi_safi.route_selection.enable_med = enable;
+        })
+        .path(bgp::global::afi_safis::afi_safi::add_paths::receive::PATH)
+        .modify_apply(|instance, args| {
+            let afi_safi = args.list_entry.into_afi_safi().unwrap();
+            let afi_safi = instance.config.afi_safi.get_mut(&afi_safi).unwrap();
+
+            afi_safi.add_path.receive = args.dnode.get_bool();
+
+            let event_queue = args.event_queue;
+            for nbr_addr in instance.neighbors.keys() {
+                let msg = NotificationMsg::new(ErrorCode::Cease, CeaseSubcode::OtherConfigurationChange);
+                event_queue.insert(Event::NeighborReset(*nbr_addr, msg));
+            }
+        })
+        .delete_apply(|instance, args| {
+            let afi_safi = args.list_entry.into_afi_safi().unwrap();
+            let afi_safi = instance.config.afi_safi.get_mut(&afi_safi).unwrap();
+
+            afi_safi.add_path.receive = bgp::global::afi_safis::afi_safi::add_paths::receive::DFLT;
+
+            let event_queue = args.event_queue;
+            for nbr_addr in instance.neighbors.keys() {
+                let msg = NotificationMsg::new(ErrorCode::Cease, CeaseSubcode::OtherConfigurationChange);
+                event_queue.insert(Event::NeighborReset(*nbr_addr, msg));
+            }
+        })
+        .path(bgp::global::afi_safis::afi_safi::add_paths::all::PATH)
+        .create_apply(|instance, args| {
+            let afi_safi = args.list_entry.into_afi_safi().unwrap();
+            let afi_safi = instance.config.afi_safi.get_mut(&afi_safi).unwrap();
+
+            afi_safi.add_path.send_all = true;
+
+            let event_queue = args.event_queue;
+            for nbr_addr in instance.neighbors.keys() {
+                let msg = NotificationMsg::new(ErrorCode::Cease, CeaseSubcode::OtherConfigurationChange);
+                event_queue.insert(Event::NeighborReset(*nbr_addr, msg));
+            }
+        })
+        .delete_apply(|instance, args| {
+            let afi_safi = args.list_entry.into_afi_safi().unwrap();
+            let afi_safi = instance.config.afi_safi.get_mut(&afi_safi).unwrap();
+
+            afi_safi.add_path.send_all = false;
+
+            let event_queue = args.event_queue;
+            for nbr_addr in instance.neighbors.keys() {
+                let msg = NotificationMsg::new(ErrorCode::Cease, CeaseSubcode::OtherConfigurationChange);
+                event_queue.insert(Event::NeighborReset(*nbr_addr, msg));
+            }
         })
         .path(bgp::global::afi_safis::afi_safi::use_multiple_paths::enabled::PATH)
         .modify_apply(|instance, args| {
@@ -1051,6 +1110,48 @@ fn load_callbacks() -> Callbacks<Instance> {
             let log = args.dnode.get_bool();
             nbr.config.log_neighbor_state_changes = log;
         })
+        .path(bgp::neighbors::neighbor::add_paths::receive::PATH)
+        .modify_apply(|instance, args| {
+            let nbr_addr = args.list_entry.into_neighbor().unwrap();
+            let nbr = instance.neighbors.get_mut(&nbr_addr).unwrap();
+
+            nbr.config.add_path.receive = args.dnode.get_bool();
+
+            let event_queue = args.event_queue;
+            let msg = NotificationMsg::new(ErrorCode::Cease, CeaseSubcode::OtherConfigurationChange);
+            event_queue.insert(Event::NeighborReset(nbr.remote_addr, msg));
+        })
+        .delete_apply(|instance, args| {
+            let nbr_addr = args.list_entry.into_neighbor().unwrap();
+            let nbr = instance.neighbors.get_mut(&nbr_addr).unwrap();
+
+            nbr.config.add_path.receive = bgp::neighbors::neighbor::add_paths::receive::DFLT;
+
+            let event_queue = args.event_queue;
+            let msg = NotificationMsg::new(ErrorCode::Cease, CeaseSubcode::OtherConfigurationChange);
+            event_queue.insert(Event::NeighborReset(nbr.remote_addr, msg));
+        })
+        .path(bgp::neighbors::neighbor::add_paths::all::PATH)
+        .create_apply(|instance, args| {
+            let nbr_addr = args.list_entry.into_neighbor().unwrap();
+            let nbr = instance.neighbors.get_mut(&nbr_addr).unwrap();
+
+            nbr.config.add_path.send_all = true;
+
+            let event_queue = args.event_queue;
+            let msg = NotificationMsg::new(ErrorCode::Cease, CeaseSubcode::OtherConfigurationChange);
+            event_queue.insert(Event::NeighborReset(nbr.remote_addr, msg));
+        })
+        .delete_apply(|instance, args| {
+            let nbr_addr = args.list_entry.into_neighbor().unwrap();
+            let nbr = instance.neighbors.get_mut(&nbr_addr).unwrap();
+
+            nbr.config.add_path.send_all = false;
+
+            let event_queue = args.event_queue;
+            let msg = NotificationMsg::new(ErrorCode::Cease, CeaseSubcode::OtherConfigurationChange);
+            event_queue.insert(Event::NeighborReset(nbr.remote_addr, msg));
+        })
         .path(bgp::neighbors::neighbor::as_path_options::allow_own_as::PATH)
         .modify_apply(|instance, args| {
             let nbr_addr = args.list_entry.into_neighbor().unwrap();
@@ -1598,10 +1699,7 @@ impl Provider for Instance {
                     let nbr_trace_opts = &nbr.config.trace_opts;
                     let instance_trace_opts = &self.config.trace_opts;
 
-                    let disabled = TraceOptionPacketType {
-                        tx: false,
-                        rx: false,
-                    };
+                    let disabled = TraceOptionPacketType { tx: false, rx: false };
                     let open = nbr_trace_opts
                         .packets
                         .open
@@ -1727,10 +1825,7 @@ impl Default for DistanceCfg {
         let external = bgp::global::distance::external::DFLT;
         let internal = bgp::global::distance::internal::DFLT;
 
-        DistanceCfg {
-            external,
-            internal,
-        }
+        DistanceCfg { external, internal }
     }
 }
 
@@ -1755,6 +1850,7 @@ impl Default for InstanceAfiSafiCfg {
         // TODO: fetch defaults from YANG module
         InstanceAfiSafiCfg {
             enabled: false,
+            add_path: Default::default(),
             multipath: Default::default(),
             route_selection: Default::default(),
             prefix_limit: Default::default(),
@@ -1778,6 +1874,7 @@ impl Default for NeighborCfg {
             timers: Default::default(),
             transport: Default::default(),
             log_neighbor_state_changes,
+            add_path: Default::default(),
             as_path_options: Default::default(),
             apply_policy: Default::default(),
             prefix_limit: Default::default(),
@@ -1827,6 +1924,7 @@ impl Default for NeighborAfiSafiCfg {
 
         NeighborAfiSafiCfg {
             enabled,
+            add_path: Default::default(),
             prefix_limit: Default::default(),
             send_default_route: false,
             apply_policy: Default::default(),
@@ -1872,10 +1970,7 @@ impl Default for AsPathOptions {
 
 impl Default for TraceOptionPacketResolved {
     fn default() -> TraceOptionPacketResolved {
-        let disabled = TraceOptionPacketType {
-            tx: false,
-            rx: false,
-        };
+        let disabled = TraceOptionPacketType { tx: false, rx: false };
         TraceOptionPacketResolved {
             open: disabled,
             update: disabled,
@@ -1891,9 +1986,6 @@ impl Default for TraceOptionPacketType {
         let tx = bgp::global::trace_options::flag::send::DFLT;
         let rx = bgp::global::trace_options::flag::receive::DFLT;
 
-        TraceOptionPacketType {
-            tx,
-            rx,
-        }
+        TraceOptionPacketType { tx, rx }
     }
 }

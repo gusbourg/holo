@@ -14,8 +14,6 @@ use holo_utils::ip::{IpAddrKind, IpNetworkKind, Ipv4AddrExt, Ipv6AddrExt};
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use itertools::Itertools;
 
-use crate::evpn;
-use crate::ibus;
 use crate::neighbor::{
     Neighbor, NeighborUpdateQueue, NeighborUpdateQueues, PeerType,
 };
@@ -28,6 +26,7 @@ use crate::packet::message::{
 use crate::rib::{
     LocalRoute, Route, RouteCompare, RoutingTable, RoutingTables,
 };
+use crate::{evpn, ibus};
 
 // BGP address-family specific code.
 pub trait AddressFamily: Sized {

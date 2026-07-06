@@ -1,3 +1,0 @@
-{"NexthopUntrack":{"addr":"192.0.2.2"}}
-{"NexthopTrack":{"addr":"192.0.2.2"}}
-{"RouteIpDel":{"protocol":"bgp","prefix":"198.51.100.1/32"}}

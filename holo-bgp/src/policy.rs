@@ -12,18 +12,23 @@ use derive_new::new;
 use holo_utils::bgp::{AfiSafi, RouteType};
 use holo_utils::ip::IpNetworkKind;
 use holo_utils::policy::{
-    BgpNexthop, BgpPolicyAction, BgpPolicyCondition, BgpSetCommMethod,
-    BgpSetCommOptions, BgpSetMed, DefaultPolicyType, MatchSets,
-    MatchSetRestrictedType, MatchSetType, MetricModification, Policy,
-    PolicyAction, PolicyCondition, PolicyResult, PolicyStmt, PolicyType,
+    BgpAsPathSet, BgpCommunitySet, BgpNexthop, BgpPolicyAction,
+    BgpPolicyCondition, BgpSetCommMethod, BgpSetCommOptions, BgpSetMed,
+    DefaultPolicyType, MatchSetRestrictedType, MatchSetType, MatchSets,
+    MetricModification, Policy, PolicyAction, PolicyCondition, PolicyResult,
+    PolicyStmt, PolicyType, bgp_as_path_regex_pattern,
 };
 use holo_utils::southbound::RouteOpaqueAttrs;
+use holo_yang::ToYang;
 use ipnetwork::IpNetwork;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::packet::attribute::{Attrs, CommList, CommType};
+use crate::packet::attribute::{
+    AsPath, AsPathSegmentType, Attrs, CommList, CommType,
+};
 use crate::rib::RouteOrigin;
 use crate::tasks::messages::input::PolicyResultMsg;
 
@@ -305,49 +310,48 @@ fn process_stmt_condition(
                 }
                 // "match-community-set"
                 BgpPolicyCondition::MatchCommSet { value, match_type } => {
-                    if let Some(comm) = &attrs.comm {
-                        match_sets.bgp.comms.get(value).is_some_and(|set| {
-                            match_comm_set(match_type, set, &comm.0)
-                        })
-                    } else {
-                        false
-                    }
+                    match_sets.bgp.comms.get(value).is_some_and(|set| {
+                        match_community_set(
+                            match_type,
+                            set,
+                            attrs.comm.as_ref(),
+                        )
+                    })
                 }
                 // "match-ext-community-set"
                 BgpPolicyCondition::MatchExtCommSet { value, match_type } => {
-                    if let Some(ext_comm) = &attrs.ext_comm {
-                        match_sets.bgp.ext_comms.get(value).is_some_and(
-                            |set| match_comm_set(match_type, set, &ext_comm.0),
+                    match_sets.bgp.ext_comms.get(value).is_some_and(|set| {
+                        match_community_set(
+                            match_type,
+                            set,
+                            attrs.ext_comm.as_ref(),
                         )
-                    } else {
-                        false
-                    }
+                    })
                 }
                 // "match-ipv6-ext-community-set"
                 BgpPolicyCondition::MatchExtv6CommSet { value, match_type } => {
-                    if let Some(extv6_comm) = &attrs.extv6_comm {
-                        match_sets.bgp.extv6_comms.get(value).is_some_and(
-                            |set| match_comm_set(match_type, set, &extv6_comm.0),
+                    match_sets.bgp.extv6_comms.get(value).is_some_and(|set| {
+                        match_community_set(
+                            match_type,
+                            set,
+                            attrs.extv6_comm.as_ref(),
                         )
-                    } else {
-                        false
-                    }
+                    })
                 }
                 // "match-large-community-set"
                 BgpPolicyCondition::MatchLargeCommSet { value, match_type } => {
-                    if let Some(large_comm) = &attrs.large_comm {
-                        match_sets.bgp.large_comms.get(value).is_some_and(
-                            |set| match_comm_set(match_type, set, &large_comm.0),
+                    match_sets.bgp.large_comms.get(value).is_some_and(|set| {
+                        match_community_set(
+                            match_type,
+                            set,
+                            attrs.large_comm.as_ref(),
                         )
-                    } else {
-                        false
-                    }
+                    })
                 }
                 // "match-as-path-set"
                 BgpPolicyCondition::MatchAsPathSet { value, match_type } => {
                     match_sets.bgp.as_paths.get(value).is_some_and(|set| {
-                        let asns = attrs.base.as_path.iter().collect();
-                        match_comm_set(match_type, set, &asns)
+                        match_as_path_set(match_type, set, &attrs.base.as_path)
                     })
                 }
                 // "match-next-hop-set"
@@ -382,6 +386,96 @@ where
         MatchSetType::All => route_values.is_superset(policy_set),
         MatchSetType::Invert => policy_set.is_disjoint(route_values),
     }
+}
+
+fn match_community_set<T>(
+    match_type: &MatchSetType,
+    policy_set: &BgpCommunitySet<T>,
+    route_values: Option<&CommList<T>>,
+) -> bool
+where
+    T: CommType + ToYang,
+{
+    let route_values = route_values.map(|values| &values.0);
+    let literal_matches = route_values
+        .map(|route_values| {
+            match_comm_set(match_type, &policy_set.literals, route_values)
+        })
+        .unwrap_or_else(|| {
+            matches!(match_type, MatchSetType::All | MatchSetType::Invert)
+        });
+    let route_strings = route_values
+        .into_iter()
+        .flat_map(|values| {
+            values.iter().map(|value| value.to_yang().into_owned())
+        })
+        .collect::<BTreeSet<_>>();
+    let regex_matches =
+        match_regex_set(match_type, &policy_set.regexes, &route_strings);
+
+    match match_type {
+        MatchSetType::Any => literal_matches || regex_matches,
+        MatchSetType::All => literal_matches && regex_matches,
+        MatchSetType::Invert => literal_matches && regex_matches,
+    }
+}
+
+fn match_as_path_set(
+    match_type: &MatchSetType,
+    policy_set: &BgpAsPathSet,
+    as_path: &AsPath,
+) -> bool {
+    let asns = as_path.iter().collect();
+    let literal_matches =
+        match_comm_set(match_type, &policy_set.literals, &asns);
+    let as_path = as_path_to_regex_string(as_path);
+    let route_values = BTreeSet::from([as_path]);
+    let regex_matches =
+        match_regex_set(match_type, &policy_set.regexes, &route_values);
+
+    match match_type {
+        MatchSetType::Any => literal_matches || regex_matches,
+        MatchSetType::All => literal_matches && regex_matches,
+        MatchSetType::Invert => literal_matches && regex_matches,
+    }
+}
+
+fn match_regex_set(
+    match_type: &MatchSetType,
+    policy_set: &BTreeSet<holo_utils::policy::CompiledRegex>,
+    route_values: &BTreeSet<String>,
+) -> bool {
+    match match_type {
+        MatchSetType::Any => policy_set.iter().any(|regex| {
+            route_values.iter().any(|value| regex.is_match(value))
+        }),
+        MatchSetType::All => policy_set.iter().all(|regex| {
+            route_values.iter().any(|value| regex.is_match(value))
+        }),
+        MatchSetType::Invert => policy_set.iter().all(|regex| {
+            route_values.iter().all(|value| !regex.is_match(value))
+        }),
+    }
+}
+
+fn as_path_to_regex_string(as_path: &AsPath) -> String {
+    as_path
+        .segments
+        .iter()
+        .map(|segment| match segment.seg_type {
+            AsPathSegmentType::Set => {
+                format!("{{{}}}", segment.members.iter().join(","))
+            }
+            AsPathSegmentType::Sequence => segment.members.iter().join(" "),
+            AsPathSegmentType::ConfedSequence => {
+                format!("({})", segment.members.iter().join(" "))
+            }
+            AsPathSegmentType::ConfedSet => {
+                format!("({{{}}})", segment.members.iter().join(","))
+            }
+        })
+        .filter(|segment| !segment.is_empty())
+        .join(" ")
 }
 
 // Processes a single action statement within a routing policy.
@@ -518,7 +612,7 @@ fn process_stmt_action(
 fn action_set_comm<T>(
     options: &BgpSetCommOptions,
     method: &BgpSetCommMethod<T>,
-    comm_sets: &BTreeMap<String, BTreeSet<T>>,
+    comm_sets: &BTreeMap<String, BgpCommunitySet<T>>,
     comm_list: &mut Option<CommList<T>>,
 ) -> bool
 where
@@ -531,7 +625,7 @@ where
             let Some(comms) = comm_sets.get(set) else {
                 return false;
             };
-            comms
+            &comms.literals
         }
     };
 
@@ -570,11 +664,14 @@ mod tests {
 
     use holo_utils::ip::AddressFamily;
     use holo_utils::policy::{
-        IpPrefixRange, Policy, PolicyAction, PolicyCondition, PolicyStmt,
+        CompiledRegex, IpPrefixRange, Policy, PolicyAction, PolicyCondition,
+        PolicyStmt,
     };
 
     use super::*;
-    use crate::packet::attribute::{AsPath, AsPathSegment, AsPathSegmentType, CommList};
+    use crate::packet::attribute::{
+        AsPath, AsPathSegment, AsPathSegmentType, CommList,
+    };
 
     fn route_info() -> RoutePolicyInfo {
         RoutePolicyInfo::new(
@@ -687,17 +784,20 @@ mod tests {
     #[test]
     fn missing_bgp_set_reference_is_no_match() {
         let mut stmt = PolicyStmt::new("10".to_owned());
-        stmt.condition_add(PolicyCondition::Bgp(BgpPolicyCondition::MatchCommSet {
-            value: "MISSING".to_owned(),
-            match_type: MatchSetType::Any,
-        }));
+        stmt.condition_add(PolicyCondition::Bgp(
+            BgpPolicyCondition::MatchCommSet {
+                value: "MISSING".to_owned(),
+                match_type: MatchSetType::Any,
+            },
+        ));
         stmt.action_add(PolicyAction::Accept(true));
 
         let mut policy = Policy::new("POLICY".to_owned());
         policy.stmt_add(stmt);
 
         let mut route = route_info();
-        route.attrs.comm = Some(CommList(BTreeSet::from([holo_utils::bgp::Comm(100)])));
+        route.attrs.comm =
+            Some(CommList(BTreeSet::from([holo_utils::bgp::Comm(100)])));
 
         let result = process_policies(
             AfiSafi::Ipv4Unicast,
@@ -714,10 +814,12 @@ mod tests {
     #[test]
     fn community_match_all_requires_all_members_on_route() {
         let mut stmt = PolicyStmt::new("10".to_owned());
-        stmt.condition_add(PolicyCondition::Bgp(BgpPolicyCondition::MatchCommSet {
-            value: "COMM".to_owned(),
-            match_type: MatchSetType::All,
-        }));
+        stmt.condition_add(PolicyCondition::Bgp(
+            BgpPolicyCondition::MatchCommSet {
+                value: "COMM".to_owned(),
+                match_type: MatchSetType::All,
+            },
+        ));
         stmt.action_add(PolicyAction::Accept(true));
 
         let mut policy = Policy::new("POLICY".to_owned());
@@ -726,11 +828,18 @@ mod tests {
         let mut match_sets = MatchSets::default();
         match_sets.bgp.comms.insert(
             "COMM".to_owned(),
-            BTreeSet::from([holo_utils::bgp::Comm(100), holo_utils::bgp::Comm(200)]),
+            BgpCommunitySet {
+                literals: BTreeSet::from([
+                    holo_utils::bgp::Comm(100),
+                    holo_utils::bgp::Comm(200),
+                ]),
+                ..Default::default()
+            },
         );
 
         let mut route = route_info();
-        route.attrs.comm = Some(CommList(BTreeSet::from([holo_utils::bgp::Comm(100)])));
+        route.attrs.comm =
+            Some(CommList(BTreeSet::from([holo_utils::bgp::Comm(100)])));
         let result = process_policies(
             AfiSafi::Ipv4Unicast,
             "198.51.100.0/24".parse().unwrap(),
@@ -772,7 +881,13 @@ mod tests {
         policy.stmt_add(stmt);
 
         let mut match_sets = MatchSets::default();
-        match_sets.bgp.as_paths.insert("ASNS".to_owned(), BTreeSet::from([65001]));
+        match_sets.bgp.as_paths.insert(
+            "ASNS".to_owned(),
+            BgpAsPathSet {
+                literals: BTreeSet::from([65001]),
+                ..Default::default()
+            },
+        );
 
         let mut route = route_info();
         route.attrs.base.as_path = AsPath {
@@ -792,6 +907,227 @@ mod tests {
         );
 
         assert!(matches!(result, PolicyResult::Accept(_)));
+    }
+
+    #[test]
+    fn as_path_set_matches_regular_expressions() {
+        let mut stmt = PolicyStmt::new("10".to_owned());
+        stmt.condition_add(PolicyCondition::Bgp(
+            BgpPolicyCondition::MatchAsPathSet {
+                value: "AS_REGEX".to_owned(),
+                match_type: MatchSetType::Any,
+            },
+        ));
+        stmt.action_add(PolicyAction::Accept(true));
+
+        let mut policy = Policy::new("POLICY".to_owned());
+        policy.stmt_add(stmt);
+
+        let mut match_sets = MatchSets::default();
+        match_sets.bgp.as_paths.insert(
+            "AS_REGEX".to_owned(),
+            BgpAsPathSet {
+                regexes: ["_65001$", "^65002_", "_65003_"]
+                    .into_iter()
+                    .map(|pattern| {
+                        CompiledRegex::new(bgp_as_path_regex_pattern(pattern))
+                            .unwrap()
+                    })
+                    .collect(),
+                ..Default::default()
+            },
+        );
+
+        let mut route = route_info();
+        route.attrs.base.as_path = AsPath {
+            segments: VecDeque::from([AsPathSegment {
+                seg_type: AsPathSegmentType::Sequence,
+                members: VecDeque::from([65002, 65003, 65001]),
+            }]),
+        };
+
+        let result = process_policies(
+            AfiSafi::Ipv4Unicast,
+            "198.51.100.0/24".parse().unwrap(),
+            route,
+            &[Arc::new(policy)],
+            &match_sets,
+            DefaultPolicyType::RejectRoute,
+        );
+
+        assert!(matches!(result, PolicyResult::Accept(_)));
+    }
+
+    #[test]
+    fn as_path_regex_can_match_empty_path() {
+        let mut stmt = PolicyStmt::new("10".to_owned());
+        stmt.condition_add(PolicyCondition::Bgp(
+            BgpPolicyCondition::MatchAsPathSet {
+                value: "EMPTY".to_owned(),
+                match_type: MatchSetType::Any,
+            },
+        ));
+        stmt.action_add(PolicyAction::Accept(true));
+
+        let mut policy = Policy::new("POLICY".to_owned());
+        policy.stmt_add(stmt);
+
+        let mut match_sets = MatchSets::default();
+        match_sets.bgp.as_paths.insert(
+            "EMPTY".to_owned(),
+            BgpAsPathSet {
+                regexes: BTreeSet::from([
+                    CompiledRegex::new("^$".to_owned()).unwrap()
+                ]),
+                ..Default::default()
+            },
+        );
+
+        let result = process_policies(
+            AfiSafi::Ipv4Unicast,
+            "198.51.100.0/24".parse().unwrap(),
+            route_info(),
+            &[Arc::new(policy)],
+            &match_sets,
+            DefaultPolicyType::RejectRoute,
+        );
+
+        assert!(matches!(result, PolicyResult::Accept(_)));
+    }
+
+    #[test]
+    fn community_set_matches_regular_expression() {
+        let mut stmt = PolicyStmt::new("10".to_owned());
+        stmt.condition_add(PolicyCondition::Bgp(
+            BgpPolicyCondition::MatchCommSet {
+                value: "COMM_REGEX".to_owned(),
+                match_type: MatchSetType::Any,
+            },
+        ));
+        stmt.action_add(PolicyAction::Accept(true));
+
+        let mut policy = Policy::new("POLICY".to_owned());
+        policy.stmt_add(stmt);
+
+        let mut match_sets = MatchSets::default();
+        match_sets.bgp.comms.insert(
+            "COMM_REGEX".to_owned(),
+            BgpCommunitySet {
+                regexes: BTreeSet::from([CompiledRegex::new(
+                    "65001:.*".to_owned(),
+                )
+                .unwrap()]),
+                ..Default::default()
+            },
+        );
+
+        let mut route = route_info();
+        route.attrs.comm =
+            Some(CommList(BTreeSet::from([holo_utils::bgp::Comm(
+                (65001 << 16) | 100,
+            )])));
+
+        let result = process_policies(
+            AfiSafi::Ipv4Unicast,
+            "198.51.100.0/24".parse().unwrap(),
+            route,
+            &[Arc::new(policy)],
+            &match_sets,
+            DefaultPolicyType::RejectRoute,
+        );
+
+        assert!(matches!(result, PolicyResult::Accept(_)));
+    }
+
+    #[test]
+    fn community_set_invert_rejects_matching_value() {
+        let mut stmt = PolicyStmt::new("10".to_owned());
+        stmt.condition_add(PolicyCondition::Bgp(
+            BgpPolicyCondition::MatchCommSet {
+                value: "COMM_REGEX".to_owned(),
+                match_type: MatchSetType::Invert,
+            },
+        ));
+        stmt.action_add(PolicyAction::Accept(true));
+
+        let mut policy = Policy::new("POLICY".to_owned());
+        policy.stmt_add(stmt);
+
+        let mut match_sets = MatchSets::default();
+        match_sets.bgp.comms.insert(
+            "COMM_REGEX".to_owned(),
+            BgpCommunitySet {
+                regexes: BTreeSet::from([CompiledRegex::new(
+                    "65001:.*".to_owned(),
+                )
+                .unwrap()]),
+                ..Default::default()
+            },
+        );
+
+        let mut route = route_info();
+        route.attrs.comm =
+            Some(CommList(BTreeSet::from([holo_utils::bgp::Comm(
+                (65002 << 16) | 100,
+            )])));
+        let result = process_policies(
+            AfiSafi::Ipv4Unicast,
+            "198.51.100.0/24".parse().unwrap(),
+            route,
+            &[Arc::new(policy.clone())],
+            &match_sets,
+            DefaultPolicyType::RejectRoute,
+        );
+        assert!(matches!(result, PolicyResult::Accept(_)));
+
+        let mut route = route_info();
+        route.attrs.comm =
+            Some(CommList(BTreeSet::from([holo_utils::bgp::Comm(
+                (65001 << 16) | 100,
+            )])));
+        let result = process_policies(
+            AfiSafi::Ipv4Unicast,
+            "198.51.100.0/24".parse().unwrap(),
+            route,
+            &[Arc::new(policy)],
+            &match_sets,
+            DefaultPolicyType::RejectRoute,
+        );
+        assert!(matches!(result, PolicyResult::Reject));
+    }
+
+    #[test]
+    fn invalid_regex_compile_error_does_not_panic_policy_eval() {
+        assert!(CompiledRegex::new("[".to_owned()).is_err());
+
+        let mut stmt = PolicyStmt::new("10".to_owned());
+        stmt.condition_add(PolicyCondition::Bgp(
+            BgpPolicyCondition::MatchAsPathSet {
+                value: "EMPTY".to_owned(),
+                match_type: MatchSetType::Any,
+            },
+        ));
+        stmt.action_add(PolicyAction::Accept(true));
+
+        let mut policy = Policy::new("POLICY".to_owned());
+        policy.stmt_add(stmt);
+
+        let mut match_sets = MatchSets::default();
+        match_sets
+            .bgp
+            .as_paths
+            .insert("EMPTY".to_owned(), BgpAsPathSet::default());
+
+        let result = process_policies(
+            AfiSafi::Ipv4Unicast,
+            "198.51.100.0/24".parse().unwrap(),
+            route_info(),
+            &[Arc::new(policy)],
+            &match_sets,
+            DefaultPolicyType::RejectRoute,
+        );
+
+        assert!(matches!(result, PolicyResult::Reject));
     }
 
     #[test]
@@ -823,7 +1159,9 @@ mod tests {
         let mut stmt = PolicyStmt::new("10".to_owned());
         stmt.action_add(PolicyAction::Bgp(BgpPolicyAction::SetComm {
             options: BgpSetCommOptions::Remove,
-            method: BgpSetCommMethod::Inline(BTreeSet::from([holo_utils::bgp::Comm(100)])),
+            method: BgpSetCommMethod::Inline(BTreeSet::from([
+                holo_utils::bgp::Comm(100),
+            ])),
         }));
         stmt.action_add(PolicyAction::Accept(true));
 
@@ -831,7 +1169,8 @@ mod tests {
         policy.stmt_add(stmt);
 
         let mut route = route_info();
-        route.attrs.comm = Some(CommList(BTreeSet::from([holo_utils::bgp::Comm(200)])));
+        route.attrs.comm =
+            Some(CommList(BTreeSet::from([holo_utils::bgp::Comm(200)])));
         let result = process_policies(
             AfiSafi::Ipv4Unicast,
             "198.51.100.0/24".parse().unwrap(),
@@ -855,7 +1194,9 @@ mod tests {
         let mut stmt = PolicyStmt::new("10".to_owned());
         stmt.action_add(PolicyAction::Bgp(BgpPolicyAction::SetComm {
             options: BgpSetCommOptions::Add,
-            method: BgpSetCommMethod::Inline(BTreeSet::from([holo_utils::bgp::Comm(200)])),
+            method: BgpSetCommMethod::Inline(BTreeSet::from([
+                holo_utils::bgp::Comm(200),
+            ])),
         }));
 
         let mut policy = Policy::new("POLICY".to_owned());
@@ -863,7 +1204,8 @@ mod tests {
         policy.stmt_add(accept_stmt("20"));
 
         let mut route = route_info();
-        route.attrs.comm = Some(CommList(BTreeSet::from([holo_utils::bgp::Comm(100)])));
+        route.attrs.comm =
+            Some(CommList(BTreeSet::from([holo_utils::bgp::Comm(100)])));
         let result = process_policies(
             AfiSafi::Ipv4Unicast,
             "198.51.100.0/24".parse().unwrap(),
@@ -878,13 +1220,18 @@ mod tests {
         };
         assert_eq!(
             route.attrs.comm.unwrap().0,
-            BTreeSet::from([holo_utils::bgp::Comm(100), holo_utils::bgp::Comm(200)])
+            BTreeSet::from([
+                holo_utils::bgp::Comm(100),
+                holo_utils::bgp::Comm(200)
+            ])
         );
 
         let mut stmt = PolicyStmt::new("10".to_owned());
         stmt.action_add(PolicyAction::Bgp(BgpPolicyAction::SetComm {
             options: BgpSetCommOptions::Replace,
-            method: BgpSetCommMethod::Inline(BTreeSet::from([holo_utils::bgp::Comm(300)])),
+            method: BgpSetCommMethod::Inline(BTreeSet::from([
+                holo_utils::bgp::Comm(300),
+            ])),
         }));
 
         let mut policy = Policy::new("POLICY".to_owned());
@@ -892,7 +1239,8 @@ mod tests {
         policy.stmt_add(accept_stmt("20"));
 
         let mut route = route_info();
-        route.attrs.comm = Some(CommList(BTreeSet::from([holo_utils::bgp::Comm(100)])));
+        route.attrs.comm =
+            Some(CommList(BTreeSet::from([holo_utils::bgp::Comm(100)])));
         let result = process_policies(
             AfiSafi::Ipv4Unicast,
             "198.51.100.0/24".parse().unwrap(),

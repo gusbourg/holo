@@ -13,8 +13,9 @@ use holo_northbound::configuration::{self, Callbacks, CallbacksBuilder, Provider
 use holo_utils::bgp::{self, Comm, ExtComm, Extv6Comm, LargeComm, Origin};
 use holo_utils::ip::AddressFamily;
 use holo_utils::policy::{
-    BgpEqOperator, BgpNexthop, BgpPolicyAction, BgpPolicyActionType, BgpPolicyCondition, BgpPolicyConditionType, BgpSetCommMethod, BgpSetCommOptions, BgpSetMed, IpPrefixRange, MatchSetRestrictedType, MatchSetType, MetricType, NeighborSet, Policy, PolicyAction,
+    BgpAsPathSet, BgpCommunitySet, BgpEqOperator, BgpNexthop, BgpPolicyAction, BgpPolicyActionType, BgpPolicyCondition, BgpPolicyConditionType, BgpSetCommMethod, BgpSetCommOptions, BgpSetMed, CompiledRegex, IpPrefixRange, MatchSetRestrictedType, MatchSetType, MetricType, NeighborSet, Policy, PolicyAction,
     PolicyActionType, PolicyCondition, PolicyConditionType, PolicyStmt, PrefixSet, RouteLevel, RouteType, TagSet,
+    bgp_as_path_regex_pattern,
 };
 use holo_utils::protocol::Protocol;
 use holo_utils::yang::DataNodeRefExt;
@@ -228,9 +229,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .create_apply(|master, args| {
             let name = args.list_entry.into_as_path_set().unwrap();
             let set = master.match_sets.bgp.as_paths.get_mut(&name).unwrap();
-            if let Ok(asn) = args.dnode.get_string().parse::<u32>() {
-                set.insert(asn);
-            }
+            as_path_set_member_add(set, &args.dnode.get_string());
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::MatchSetsUpdate);
@@ -238,9 +237,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .delete_apply(|master, args| {
             let name = args.list_entry.into_as_path_set().unwrap();
             let set = master.match_sets.bgp.as_paths.get_mut(&name).unwrap();
-            if let Ok(asn) = args.dnode.get_string().parse::<u32>() {
-                set.remove(&asn);
-            }
+            as_path_set_member_remove(set, &args.dnode.get_string());
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::MatchSetsUpdate);
@@ -265,9 +262,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .create_apply(|master, args| {
             let name = args.list_entry.into_comm_set().unwrap();
             let set = master.match_sets.bgp.comms.get_mut(&name).unwrap();
-            if let Some(comm) = Comm::try_from_yang(&args.dnode.get_string()) {
-                set.insert(comm);
-            }
+            comm_set_member_add(set, &args.dnode.get_string(), Comm::try_from_yang);
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::MatchSetsUpdate);
@@ -275,9 +270,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .delete_apply(|master, args| {
             let name = args.list_entry.into_comm_set().unwrap();
             let set = master.match_sets.bgp.comms.get_mut(&name).unwrap();
-            if let Some(comm) = Comm::try_from_yang(&args.dnode.get_string()) {
-                set.remove(&comm);
-            }
+            comm_set_member_remove(set, &args.dnode.get_string(), Comm::try_from_yang);
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::MatchSetsUpdate);
@@ -302,9 +295,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .create_apply(|master, args| {
             let name = args.list_entry.into_ext_comm_set().unwrap();
             let set = master.match_sets.bgp.ext_comms.get_mut(&name).unwrap();
-            if let Some(comm) = ExtComm::try_from_yang(&args.dnode.get_string()) {
-                set.insert(comm);
-            }
+            comm_set_member_add(set, &args.dnode.get_string(), ExtComm::try_from_yang);
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::MatchSetsUpdate);
@@ -312,9 +303,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .delete_apply(|master, args| {
             let name = args.list_entry.into_ext_comm_set().unwrap();
             let set = master.match_sets.bgp.ext_comms.get_mut(&name).unwrap();
-            if let Some(comm) = ExtComm::try_from_yang(&args.dnode.get_string()) {
-                set.remove(&comm);
-            }
+            comm_set_member_remove(set, &args.dnode.get_string(), ExtComm::try_from_yang);
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::MatchSetsUpdate);
@@ -339,9 +328,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .create_apply(|master, args| {
             let name = args.list_entry.into_extv6_comm_set().unwrap();
             let set = master.match_sets.bgp.extv6_comms.get_mut(&name).unwrap();
-            if let Some(comm) = Extv6Comm::try_from_yang(&args.dnode.get_string()) {
-                set.insert(comm);
-            }
+            comm_set_member_add(set, &args.dnode.get_string(), Extv6Comm::try_from_yang);
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::MatchSetsUpdate);
@@ -349,9 +336,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .delete_apply(|master, args| {
             let name = args.list_entry.into_extv6_comm_set().unwrap();
             let set = master.match_sets.bgp.extv6_comms.get_mut(&name).unwrap();
-            if let Some(comm) = Extv6Comm::try_from_yang(&args.dnode.get_string()) {
-                set.remove(&comm);
-            }
+            comm_set_member_remove(set, &args.dnode.get_string(), Extv6Comm::try_from_yang);
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::MatchSetsUpdate);
@@ -376,9 +361,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .create_apply(|master, args| {
             let name = args.list_entry.into_large_comm_set().unwrap();
             let set = master.match_sets.bgp.large_comms.get_mut(&name).unwrap();
-            if let Some(comm) = LargeComm::try_from_yang(&args.dnode.get_string()) {
-                set.insert(comm);
-            }
+            comm_set_member_add(set, &args.dnode.get_string(), LargeComm::try_from_yang);
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::MatchSetsUpdate);
@@ -386,9 +369,7 @@ fn load_callbacks() -> Callbacks<Master> {
         .delete_apply(|master, args| {
             let name = args.list_entry.into_large_comm_set().unwrap();
             let set = master.match_sets.bgp.large_comms.get_mut(&name).unwrap();
-            if let Some(comm) = LargeComm::try_from_yang(&args.dnode.get_string()) {
-                set.remove(&comm);
-            }
+            comm_set_member_remove(set, &args.dnode.get_string(), LargeComm::try_from_yang);
 
             let event_queue = args.event_queue;
             event_queue.insert(Event::MatchSetsUpdate);
@@ -1750,6 +1731,50 @@ fn bgp_match_set_delete(
 
     let event_queue = args.event_queue;
     event_queue.insert(Event::PolicyChange(policy.name.clone()));
+}
+
+fn as_path_set_member_add(set: &mut BgpAsPathSet, value: &str) {
+    if let Ok(asn) = value.parse::<u32>() {
+        set.literals.insert(asn);
+    } else if let Ok(regex) = CompiledRegex::new(bgp_as_path_regex_pattern(value)) {
+        set.regexes.insert(regex);
+    }
+}
+
+fn as_path_set_member_remove(set: &mut BgpAsPathSet, value: &str) {
+    if let Ok(asn) = value.parse::<u32>() {
+        set.literals.remove(&asn);
+    } else if let Ok(regex) = CompiledRegex::new(bgp_as_path_regex_pattern(value)) {
+        set.regexes.remove(&regex);
+    }
+}
+
+fn comm_set_member_add<T>(
+    set: &mut BgpCommunitySet<T>,
+    value: &str,
+    parse: impl Fn(&str) -> Option<T>,
+) where
+    T: Eq + Ord + PartialEq + PartialOrd,
+{
+    if let Some(comm) = parse(value) {
+        set.literals.insert(comm);
+    } else if let Ok(regex) = CompiledRegex::new(value.to_owned()) {
+        set.regexes.insert(regex);
+    }
+}
+
+fn comm_set_member_remove<T>(
+    set: &mut BgpCommunitySet<T>,
+    value: &str,
+    parse: impl Fn(&str) -> Option<T>,
+) where
+    T: Eq + Ord + PartialEq + PartialOrd,
+{
+    if let Some(comm) = parse(value) {
+        set.literals.remove(&comm);
+    } else if let Ok(regex) = CompiledRegex::new(value.to_owned()) {
+        set.regexes.remove(&regex);
+    }
 }
 
 trait BgpCommValue:

@@ -131,6 +131,7 @@ pub struct NeighborCfg {
     pub enabled: bool,
     pub peer_as: u32,
     pub local_as: Option<u32>,
+    pub local_as_options: LocalAsOptionsCfg,
     pub private_as_remove: Option<PrivateAsRemove>,
     pub route_reflector: RouteReflectorCfg,
     pub timers: NeighborTimersCfg,
@@ -142,6 +143,12 @@ pub struct NeighborCfg {
     pub prefix_limit: PrefixLimitCfg,
     pub afi_safi: BTreeMap<AfiSafi, NeighborAfiSafiCfg>,
     pub trace_opts: NeighborTraceOptions,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct LocalAsOptionsCfg {
+    pub no_prepend: bool,
+    pub replace_as: bool,
 }
 
 #[derive(Debug)]
@@ -234,6 +241,7 @@ pub struct AsPathOptions {
 
 #[derive(Debug)]
 pub enum PrivateAsRemove {
+    RemoveLeading,
     RemoveAll,
     ReplaceAll,
 }
@@ -897,6 +905,22 @@ fn load_callbacks() -> Callbacks<Instance> {
             let nbr = instance.neighbors.get_mut(&nbr_addr).unwrap();
 
             nbr.config.local_as = None;
+        })
+        .path(bgp::neighbors::neighbor::local_as_options::no_prepend::PATH)
+        .modify_apply(|instance, args| {
+            let nbr_addr = args.list_entry.into_neighbor().unwrap();
+            let nbr = instance.neighbors.get_mut(&nbr_addr).unwrap();
+
+            let no_prepend = args.dnode.get_bool();
+            nbr.config.local_as_options.no_prepend = no_prepend;
+        })
+        .path(bgp::neighbors::neighbor::local_as_options::replace_as::PATH)
+        .modify_apply(|instance, args| {
+            let nbr_addr = args.list_entry.into_neighbor().unwrap();
+            let nbr = instance.neighbors.get_mut(&nbr_addr).unwrap();
+
+            let replace_as = args.dnode.get_bool();
+            nbr.config.local_as_options.replace_as = replace_as;
         })
         .path(bgp::neighbors::neighbor::remove_private_as::PATH)
         .modify_apply(|instance, args| {
@@ -2080,6 +2104,7 @@ impl Default for NeighborCfg {
             enabled,
             peer_as: 0,
             local_as: None,
+            local_as_options: Default::default(),
             private_as_remove: None,
             route_reflector: Default::default(),
             timers: Default::default(),
@@ -2102,6 +2127,18 @@ impl Default for RouteReflectorCfg {
         RouteReflectorCfg {
             client,
             cluster_id: None,
+        }
+    }
+}
+
+impl Default for LocalAsOptionsCfg {
+    fn default() -> LocalAsOptionsCfg {
+        let no_prepend = bgp::neighbors::neighbor::local_as_options::no_prepend::DFLT;
+        let replace_as = bgp::neighbors::neighbor::local_as_options::replace_as::DFLT;
+
+        LocalAsOptionsCfg {
+            no_prepend,
+            replace_as,
         }
     }
 }

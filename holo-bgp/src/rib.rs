@@ -23,9 +23,10 @@ use crate::af::{
 };
 use crate::debug::Debug;
 use crate::ibus;
-use crate::neighbor::{Neighbor, PeerType};
+use crate::neighbor::{Neighbor, Neighbors, PeerType};
 use crate::northbound::configuration::{
-    DistanceCfg, InstanceTraceOptions, MultipathCfg, RouteSelectionCfg,
+    DistanceCfg, InstanceTraceOptions, MultipathCfg, PrivateAsRemove,
+    RouteSelectionCfg,
 };
 use crate::packet::attribute::{
     Attrs, BaseAttrs, ClusterList, Comms, ExtComms, Extv6Comms, LargeComms,
@@ -727,6 +728,7 @@ pub(crate) fn best_path<A>(
     local_asn: u32,
     identifier: Option<Ipv4Addr>,
     cluster_ids: &BTreeSet<Ipv4Addr>,
+    neighbors: &Neighbors,
     nht: &HashMap<IpAddr, NhtEntry<A>>,
     selection_cfg: &RouteSelectionCfg,
 ) -> Option<Box<Route>>
@@ -748,7 +750,7 @@ where
         route.ineligible_reason = None;
 
         // First, check if the route is eligible.
-        if route.attrs.base.value.as_path.contains(local_asn) {
+        if is_as_loop(route, local_asn, neighbors) {
             route.ineligible_reason = Some(RouteIneligibleReason::AsLoop);
             continue;
         }
@@ -809,6 +811,23 @@ where
 
     // Return a cloned copy of the best route found, if any.
     best_route.cloned()
+}
+
+fn is_as_loop(route: &Route, local_asn: u32, neighbors: &Neighbors) -> bool {
+    let count = route.attrs.base.value.as_path.count(local_asn);
+    if count == 0 {
+        return false;
+    }
+
+    let allowed = match &route.origin {
+        RouteOrigin::Neighbor { remote_addr, .. } => neighbors
+            .get(remote_addr)
+            .map(|nbr| nbr.config.as_path_options.allow_own_as)
+            .unwrap_or_default(),
+        _ => 0,
+    };
+
+    count > allowed
 }
 
 pub(crate) fn loc_rib_update<A>(
@@ -921,8 +940,42 @@ pub(crate) fn attrs_tx_update<A>(
             }
         }
         PeerType::External => {
-            // Prepend local AS number.
-            attrs.base.as_path.prepend(local_asn);
+            // Egress AS-path knobs are intentionally applied to this
+            // per-advertisement copy, after export policy and before encoding.
+            // Transform the original route path before local prepends so
+            // leading-private removal sees the received path, not our ASN.
+            match nbr.config.private_as_remove {
+                Some(PrivateAsRemove::RemoveLeading) => {
+                    attrs.base.as_path.remove_private_leading();
+                }
+                Some(PrivateAsRemove::RemoveAll) => {
+                    attrs.base.as_path.remove_private_all();
+                }
+                Some(PrivateAsRemove::ReplaceAll) => {
+                    attrs.base.as_path.replace_private(local_asn);
+                }
+                None => {}
+            }
+
+            if nbr.config.as_path_options.replace_peer_as {
+                attrs.base.as_path.replace(nbr.config.peer_as, local_asn);
+            }
+
+            if let Some(local_as) = nbr.config.local_as
+                && !nbr.config.local_as_options.no_prepend
+                && !nbr.config.local_as_options.replace_as
+            {
+                attrs.base.as_path.prepend(local_as);
+            }
+
+            // Prepend local AS number. With local-as replace-as, present the
+            // configured local-as in place of the global ASN.
+            let prepend_asn = if nbr.config.local_as_options.replace_as {
+                nbr.config.local_as.unwrap_or(local_asn)
+            } else {
+                local_asn
+            };
+            attrs.base.as_path.prepend(prepend_asn);
 
             // Do not propagate the MULTI_EXIT_DISC attribute.
             attrs.base.med = None;
@@ -1187,6 +1240,7 @@ mod tests {
             65000,
             None,
             &cluster_ids,
+            &Neighbors::default(),
             &HashMap::new(),
             &RouteSelectionCfg::default(),
         );
@@ -1426,6 +1480,7 @@ mod tests {
             65000,
             None,
             &BTreeSet::new(),
+            &Neighbors::default(),
             &nht,
             &Default::default(),
         )

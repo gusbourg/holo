@@ -84,6 +84,12 @@ pub struct LargeComm(pub [u8; 12]);
 
 pub type EthernetSegmentId = [u8; 10];
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EvpnEsiLabel {
+    pub single_active: bool,
+    pub label: u32,
+}
+
 // BGP Well-known Communities.
 //
 // IANA registry:
@@ -267,6 +273,30 @@ pub fn evpn_es_import_route_target(esi: EthernetSegmentId) -> ExtComm {
     bytes[1] = 0x02;
     bytes[2..8].copy_from_slice(&esi[1..7]);
     ExtComm(bytes)
+}
+
+pub fn evpn_esi_label_ext_comm(esi_label: EvpnEsiLabel) -> ExtComm {
+    let mut bytes = [0; 8];
+    bytes[0] = 0x06;
+    bytes[1] = 0x01;
+    bytes[2] = esi_label.single_active as u8;
+    let label = (esi_label.label << 4) | 1;
+    bytes[5..8].copy_from_slice(&label.to_be_bytes()[1..4]);
+    ExtComm(bytes)
+}
+
+pub fn evpn_esi_label_from_ext_comm(comm: &ExtComm) -> Option<EvpnEsiLabel> {
+    if comm.0[0] != 0x06 || comm.0[1] != 0x01 {
+        return None;
+    }
+    let label = u32::from_be_bytes([0, comm.0[5], comm.0[6], comm.0[7]]);
+    if label & 1 == 0 {
+        return None;
+    }
+    Some(EvpnEsiLabel {
+        single_active: comm.0[2] & 1 == 1,
+        label: label >> 4,
+    })
 }
 
 // ===== impl RouteDistinguisher =====

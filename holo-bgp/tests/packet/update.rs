@@ -14,7 +14,7 @@ use holo_bgp::packet::attribute::{
 };
 use holo_bgp::packet::iana::Origin;
 use holo_bgp::packet::message::{
-    DecodeCxt, EncodeCxt, EvpnEthernetSegment,
+    DecodeCxt, EncodeCxt, EvpnEthernetAutoDiscovery, EvpnEthernetSegment,
     EvpnInclusiveMulticastEthernetTag, EvpnIpPrefix, EvpnMacIpAdvertisement,
     EvpnRoute, Message, MpReachNlri, MpUnreachNlri, NegotiatedCapability,
     ReachNlri, UnreachNlri, UpdateMsg,
@@ -166,6 +166,24 @@ fn test_roundtrip_evpn_update() {
         unreach: None,
         mp_reach: Some(MpReachNlri::L2vpnEvpn {
             routes: vec![
+                EvpnRoute::EthernetAutoDiscovery(EvpnEthernetAutoDiscovery {
+                    rd: RouteDistinguisher::As2Administrator {
+                        asn: 65000,
+                        number: 1,
+                    },
+                    esi: [3, 0, 17, 34, 51, 68, 85, 102, 0, 1],
+                    ethernet_tag_id: u32::MAX,
+                    label: 0,
+                }),
+                EvpnRoute::EthernetAutoDiscovery(EvpnEthernetAutoDiscovery {
+                    rd: RouteDistinguisher::As2Administrator {
+                        asn: 65000,
+                        number: 1,
+                    },
+                    esi: [3, 0, 17, 34, 51, 68, 85, 102, 0, 1],
+                    ethernet_tag_id: 100,
+                    label: 16010,
+                }),
                 EvpnRoute::EthernetSegment(EvpnEthernetSegment {
                     rd: RouteDistinguisher::As2Administrator {
                         asn: 65000,

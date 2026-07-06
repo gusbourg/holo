@@ -23,12 +23,14 @@ use crate::af::{
 };
 use crate::debug::Debug;
 use crate::error::{Error, IoError, NbrRxError};
+use crate::evpn;
 use crate::instance::{InstanceUpView, PolicyApplyTasks};
 use crate::neighbor::{Neighbor, Neighbors, PeerType, fsm};
 use crate::packet::attribute::Attrs;
 use crate::packet::iana::{Afi, Safi};
 use crate::packet::message::{
-    Capability, Message, MpReachNlri, MpUnreachNlri, RouteRefreshMsg, UpdateMsg,
+    Capability, EvpnRoute, Message, MpReachNlri, MpUnreachNlri,
+    RouteRefreshMsg, UpdateMsg,
 };
 use crate::policy::RoutePolicyInfo;
 use crate::rib::{AttrSetsCxt, Rib, Route, RouteOrigin, RoutingTable};
@@ -310,9 +312,7 @@ fn process_nbr_update(
                     );
                 }
                 MpReachNlri::L2vpnEvpn { routes, .. } => {
-                    process_nbr_unreach_prefixes::<L2vpnEvpn>(
-                        nbr, rib, routes, ibus_tx,
-                    );
+                    process_evpn_unreach_routes(nbr, rib, routes, ibus_tx);
                 }
             }
         }
@@ -366,9 +366,7 @@ fn process_nbr_update(
                 );
             }
             MpUnreachNlri::L2vpnEvpn { routes } => {
-                process_nbr_unreach_prefixes::<L2vpnEvpn>(
-                    nbr, rib, routes, ibus_tx,
-                );
+                process_evpn_unreach_routes(nbr, rib, routes, ibus_tx);
             }
         }
     }
@@ -528,6 +526,75 @@ fn process_nbr_unreach_prefixes<A>(
         }
 
         // Enqueue prefix for the BGP Decision Process.
+        table.queued_prefixes.insert(prefix);
+    }
+}
+
+fn process_evpn_unreach_routes(
+    nbr: &Neighbor,
+    rib: &mut Rib,
+    routes: Vec<EvpnRoute>,
+    ibus_tx: &IbusChannelsTx,
+) {
+    let mass_withdraw_esis = routes
+        .iter()
+        .filter_map(|route| match route {
+            EvpnRoute::EthernetAutoDiscovery(route)
+                if evpn::ead_per_es(route.ethernet_tag_id, route.label) =>
+            {
+                Some(route.esi)
+            }
+            EvpnRoute::EthernetSegment(route) => Some(route.esi),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    process_nbr_unreach_prefixes::<L2vpnEvpn>(nbr, rib, routes, ibus_tx);
+
+    for esi in mass_withdraw_esis {
+        process_evpn_mass_withdraw(nbr, rib, esi, ibus_tx);
+    }
+}
+
+fn process_evpn_mass_withdraw(
+    nbr: &Neighbor,
+    rib: &mut Rib,
+    esi: [u8; 10],
+    ibus_tx: &IbusChannelsTx,
+) {
+    let table = L2vpnEvpn::table(&mut rib.tables);
+    let prefixes = table
+        .prefixes
+        .iter()
+        .filter_map(|(prefix, dest)| {
+            if !matches!(prefix, EvpnRoute::MacIpAdvertisement(_)) {
+                return None;
+            }
+            let route = dest
+                .adj_rib
+                .get(&nbr.remote_addr)
+                .and_then(|adj_rib| adj_rib.in_post())?;
+            let RouteOrigin::Neighbor { remote_addr, .. } = route.origin else {
+                return None;
+            };
+            Some((remote_addr, *prefix))
+        })
+        .collect::<Vec<_>>();
+    let prefixes =
+        evpn::mass_withdraw_mac_routes(prefixes, nbr.remote_addr, esi);
+
+    for prefix in prefixes {
+        let Some(dest) = table.prefixes.get_mut(&prefix) else {
+            continue;
+        };
+        let Some(adj_rib) = dest.adj_rib.get_mut(&nbr.remote_addr) else {
+            continue;
+        };
+
+        adj_rib.remove_in_pre(&mut rib.attr_sets);
+        if let Some(route) = adj_rib.remove_in_post(&mut rib.attr_sets) {
+            rib::nexthop_untrack(&mut table.nht, &prefix, &route, ibus_tx);
+        }
         table.queued_prefixes.insert(prefix);
     }
 }

@@ -254,10 +254,20 @@ pub struct LabeledVpnIpv6Nlri {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 #[derive(Deserialize, Serialize)]
 pub enum EvpnRoute {
+    EthernetAutoDiscovery(EvpnEthernetAutoDiscovery),
     EthernetSegment(EvpnEthernetSegment),
     MacIpAdvertisement(EvpnMacIpAdvertisement),
     InclusiveMulticastEthernetTag(EvpnInclusiveMulticastEthernetTag),
     IpPrefix(EvpnIpPrefix),
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Deserialize, Serialize)]
+pub struct EvpnEthernetAutoDiscovery {
+    pub rd: RouteDistinguisher,
+    pub esi: [u8; 10],
+    pub ethernet_tag_id: u32,
+    pub label: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -1248,6 +1258,15 @@ pub fn decode_labeled_vpn_ipv6_prefix(
 
 pub(crate) fn encode_evpn_route(buf: &mut BytesMut, route: &EvpnRoute) {
     match route {
+        EvpnRoute::EthernetAutoDiscovery(route) => {
+            let len = 8 + 10 + 4 + 3;
+            buf.put_u8(1);
+            buf.put_u8(len);
+            buf.put_slice(&route.rd.encode());
+            buf.put_slice(&route.esi);
+            buf.put_u32(route.ethernet_tag_id);
+            encode_evpn_label(buf, route.label);
+        }
         EvpnRoute::EthernetSegment(route) => {
             let len = 8 + 10 + 1 + route.originator_ip.length();
             buf.put_u8(4);
@@ -1340,6 +1359,8 @@ pub(crate) fn decode_evpn_route(
     let mut route_buf = buf.copy_to_bytes(route_len);
 
     match route_type {
+        1 => decode_evpn_ethernet_auto_discovery(&mut route_buf)
+            .map(|route| route.map(EvpnRoute::EthernetAutoDiscovery)),
         4 => decode_evpn_ethernet_segment(&mut route_buf)
             .map(|route| route.map(EvpnRoute::EthernetSegment)),
         2 => decode_evpn_mac_ip_advertisement(&mut route_buf)
@@ -1350,6 +1371,25 @@ pub(crate) fn decode_evpn_route(
             .map(|route| route.map(EvpnRoute::IpPrefix)),
         _ => Ok(None),
     }
+}
+
+fn decode_evpn_ethernet_auto_discovery(
+    buf: &mut Bytes,
+) -> Result<Option<EvpnEthernetAutoDiscovery>, UpdateMessageError> {
+    if buf.remaining() != 8 + 10 + 4 + 3 {
+        return Err(UpdateMessageError::InvalidNetworkField);
+    }
+    let rd = decode_rd(buf)?;
+    let mut esi = [0; 10];
+    buf.try_copy_to_slice(&mut esi)?;
+    let ethernet_tag_id = buf.try_get_u32()?;
+    let label = decode_evpn_label(buf)?;
+    Ok(Some(EvpnEthernetAutoDiscovery {
+        rd,
+        esi,
+        ethernet_tag_id,
+        label,
+    }))
 }
 
 fn decode_evpn_ethernet_segment(

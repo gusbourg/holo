@@ -964,8 +964,7 @@ mod tests {
     use super::*;
     use crate::af::L2vpnEvpn;
     use crate::evpn;
-    use crate::packet::attribute::BaseAttrs;
-    use crate::packet::attribute::CommList;
+    use crate::packet::attribute::{BaseAttrs, CommList};
     use crate::packet::message::{EvpnMacIpAdvertisement, EvpnRoute};
 
     fn make_route(

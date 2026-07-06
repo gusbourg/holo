@@ -24,13 +24,7 @@ use crate::packet::iana::{Afi, Safi};
 use crate::packet::message::{AddPathTuple, Capability};
 use crate::rib::{AttrSet, Destination, LocalRoute, Route};
 
-pub static AFI_SAFIS: [AfiSafi; 5] = [
-    AfiSafi::Ipv4Unicast,
-    AfiSafi::Ipv6Unicast,
-    AfiSafi::L3vpnIpv4Unicast,
-    AfiSafi::L3vpnIpv6Unicast,
-    AfiSafi::L2vpnEvpn,
-];
+pub static AFI_SAFIS: [AfiSafi; 5] = [AfiSafi::Ipv4Unicast, AfiSafi::Ipv6Unicast, AfiSafi::L3vpnIpv4Unicast, AfiSafi::L3vpnIpv6Unicast, AfiSafi::L2vpnEvpn];
 
 impl Provider for Instance {
     type ListEntry<'a> = yang_gen::ops::ListEntry<'a>;
@@ -68,12 +62,8 @@ impl<'a> YangContainer<'a, Instance> for bgp::global::afi_safis::afi_safi::stati
         let total_prefixes = match afi_safi {
             AfiSafi::Ipv4Unicast => rib.tables.ipv4_unicast.prefixes.len(),
             AfiSafi::Ipv6Unicast => rib.tables.ipv6_unicast.prefixes.len(),
-            AfiSafi::L3vpnIpv4Unicast => {
-                rib.tables.vpnv4_unicast.prefixes.len()
-            }
-            AfiSafi::L3vpnIpv6Unicast => {
-                rib.tables.vpnv6_unicast.prefixes.len()
-            }
+            AfiSafi::L3vpnIpv4Unicast => rib.tables.vpnv4_unicast.prefixes.len(),
+            AfiSafi::L3vpnIpv6Unicast => rib.tables.vpnv6_unicast.prefixes.len(),
             AfiSafi::L2vpnEvpn => rib.tables.l2vpn_evpn.prefixes.len(),
         };
         Some(Self {

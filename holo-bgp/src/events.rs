@@ -23,7 +23,6 @@ use crate::af::{
 };
 use crate::debug::Debug;
 use crate::error::{Error, IoError, NbrRxError};
-use crate::evpn;
 use crate::instance::{InstanceUpView, PolicyApplyTasks};
 use crate::neighbor::{Neighbor, Neighbors, PeerType, fsm};
 use crate::packet::attribute::Attrs;
@@ -35,7 +34,7 @@ use crate::packet::message::{
 use crate::policy::RoutePolicyInfo;
 use crate::rib::{AttrSetsCxt, Rib, Route, RouteOrigin, RoutingTable};
 use crate::tasks::messages::output::PolicyApplyMsg;
-use crate::{network, rib};
+use crate::{evpn, network, rib};
 
 // ===== TCP connection request =====
 

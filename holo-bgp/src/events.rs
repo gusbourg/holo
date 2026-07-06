@@ -717,6 +717,7 @@ mod tests {
             policy_apply_tasks: PolicyApplyTasks::new_for_testing(tx),
             decision_process_task: None,
             rib: Rib::default(),
+            interfaces: Default::default(),
         };
         let mut shared = InstanceShared::default();
         shared.policies.insert(

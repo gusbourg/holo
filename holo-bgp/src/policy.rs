@@ -13,9 +13,9 @@ use holo_utils::bgp::{AfiSafi, RouteType};
 use holo_utils::ip::IpNetworkKind;
 use holo_utils::policy::{
     BgpNexthop, BgpPolicyAction, BgpPolicyCondition, BgpSetCommMethod,
-    BgpSetCommOptions, BgpSetMed, DefaultPolicyType, MatchSets,
-    MatchSetRestrictedType, MatchSetType, MetricModification, Policy,
-    PolicyAction, PolicyCondition, PolicyResult, PolicyStmt, PolicyType,
+    BgpSetCommOptions, BgpSetMed, DefaultPolicyType, MatchSetRestrictedType,
+    MatchSetType, MatchSets, MetricModification, Policy, PolicyAction,
+    PolicyCondition, PolicyResult, PolicyStmt, PolicyType,
 };
 use holo_utils::southbound::RouteOpaqueAttrs;
 use ipnetwork::IpNetwork;
@@ -306,9 +306,11 @@ fn process_stmt_condition(
                 // "match-community-set"
                 BgpPolicyCondition::MatchCommSet { value, match_type } => {
                     if let Some(comm) = &attrs.comm {
-                        match_sets.bgp.comms.get(value).is_some_and(|set| {
-                            match_type.compare(set, &comm.0)
-                        })
+                        match_sets
+                            .bgp
+                            .comms
+                            .get(value)
+                            .is_some_and(|set| match_type.compare(set, &comm.0))
                     } else {
                         false
                     }
@@ -316,9 +318,9 @@ fn process_stmt_condition(
                 // "match-ext-community-set"
                 BgpPolicyCondition::MatchExtCommSet { value, match_type } => {
                     if let Some(ext_comm) = &attrs.ext_comm {
-                        match_sets.bgp.ext_comms.get(value).is_some_and(
-                            |set| match_type.compare(set, &ext_comm.0),
-                        )
+                        match_sets.bgp.ext_comms.get(value).is_some_and(|set| {
+                            match_type.compare(set, &ext_comm.0)
+                        })
                     } else {
                         false
                     }
@@ -672,17 +674,20 @@ mod tests {
     #[test]
     fn missing_bgp_set_reference_is_no_match() {
         let mut stmt = PolicyStmt::new("10".to_owned());
-        stmt.condition_add(PolicyCondition::Bgp(BgpPolicyCondition::MatchCommSet {
-            value: "MISSING".to_owned(),
-            match_type: MatchSetType::Any,
-        }));
+        stmt.condition_add(PolicyCondition::Bgp(
+            BgpPolicyCondition::MatchCommSet {
+                value: "MISSING".to_owned(),
+                match_type: MatchSetType::Any,
+            },
+        ));
         stmt.action_add(PolicyAction::Accept(true));
 
         let mut policy = Policy::new("POLICY".to_owned());
         policy.stmt_add(stmt);
 
         let mut route = route_info();
-        route.attrs.comm = Some(CommList(BTreeSet::from([holo_utils::bgp::Comm(100)])));
+        route.attrs.comm =
+            Some(CommList(BTreeSet::from([holo_utils::bgp::Comm(100)])));
 
         let result = process_policies(
             AfiSafi::Ipv4Unicast,

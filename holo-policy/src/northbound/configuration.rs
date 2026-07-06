@@ -726,8 +726,7 @@ fn load_callbacks() -> Callbacks<Master> {
             let event_queue = args.event_queue;
             event_queue.insert(Event::PolicyChange(policy.name.clone()));
         })
-        .delete_apply(|_master, _args| {
-        })
+        .delete_apply(|_master, _args| {})
         // BGP condition: match-neighbor
         .path(routing_policy::policy_definitions::policy_definition::statements::statement::conditions::bgp_conditions::match_neighbor::neighbor_eq::PATH)
         .create_apply(|master, args| {
